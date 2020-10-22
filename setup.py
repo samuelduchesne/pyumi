@@ -8,5 +8,6 @@ setup(
     license='MIT',
     author='Samuel Letellier-Duchesne',
     author_email='samueld@mit.edu',
-    description='Create and edit umi projects'
+    description='Create and edit umi projects',
+    python_requires='>=3.6'
 )
