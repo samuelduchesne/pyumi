@@ -34,27 +34,53 @@ def geom_to_curve(feature):
     )
 
 
-def polylinecurve_to_brep(feature, geom_column_name, height_column_name):
-    """Converts the polyline curve to a brep
+def geom_to_brep(feature, height_column_name):
+    """Converts the Shapely :class:`shapely.geometry.base.BaseGeometry` to
+    a :class:`rhino3dm.Brep`.
 
     Args:
-        feature (GeoSeries):
-        geom_column_name (str): Name of the colum containing the polylinecurve
-            geometry.
+        feature (GeoSeries): A GeoSeries containing a `geometry` column.
         height_column_name (str): Name of the column containing the height
             attribute.
 
     Returns:
-        Extrusion: The Rhino Extrusion
+
     """
+    # Converts the GeoSeries to a :class:`rhino3dm.PolylineCurve`
+
+    # if has interiors
+    if len(feature.geometry.interiors) > 0:
+        # Todo: Implement logic to create holes in Brep
+        # For now, forces `_noholes_brep`
+        return _noholed_brep(feature, height_column_name)
+    else:
+        # only one exterior footprint to deal with
+        return _noholed_brep(feature, height_column_name)
+
+
+def _noholed_brep(feature, height_column_name):
+    """Assumes the Geometry has no holes (geopandas.base.GeoPandasBase.interiors)
+
+    Args:
+        feature (GeoSeries):
+        height_column_name (str): Name of the column containing the height
+            attribute.
+
+    Returns:
+        Brep: The Brep object
+    """
+    _rhinoCurve: Curve = PolylineCurve(
+        Point3dList(
+            [Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords]
+        )
+    )
     # Create the extrusion using the height attr. For some reason,
     # value must be negative for the extrusion to go upwards.
     _ext = Extrusion.Create(
-        feature[geom_column_name],
-        height=-feature[height_column_name],
+        _rhinoCurve,
+        height=-feature[height_column_name],  # negative value
         cap=True,
     )
-
     if _ext:
         # If Extrusion did not fail, create Brep
         _brep = _ext.ToBrep(False)
@@ -182,11 +208,8 @@ class UmiFile:
         # geometry).
 
         # Create Rhino Geometries in two steps
-        gdf["rhino_geom"] = gdf.progress_apply(geom_to_curve, axis=1)
         gdf["rhino_geom"] = gdf.progress_apply(
-            polylinecurve_to_brep,
-            axis=1,
-            args=("rhino_geom", height_column_name),
+            geom_to_brep, args=(height_column_name,), axis=1
         )
 
         # Filter out errored rhino geometries

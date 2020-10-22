@@ -15,8 +15,10 @@ class TestCore:
         assert filename.exists()
         assert epw.exists()
         umi = UmiFile.from_gis(
-            f"{'zip://' + filename.abspath()}", "Height", epw=epw,
-            template_lib=template_lib
+            f"{'zip://' + filename.abspath()}",
+            "Height",
+            epw=epw,
+            template_lib=template_lib,
         )
 
         assert umi.name == "oshkosh_demo"
