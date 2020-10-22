@@ -137,7 +137,7 @@ class UmiFile:
                 height values. Missing values will be ignored.
             to_crs (dict): The output CRS to which the file will be projected
                 to. Units must be meters.
-            **kwargs (dict): keyword arguments passed to UmiFile constructor.
+            **kwargs: keyword arguments passed to UmiFile constructor.
         """
         if to_crs is None:
             to_crs = {'init': 'epsg:3857'}
