@@ -11,10 +11,12 @@ class TestCore:
     def test_from_gis(self):
         filename = Path("pyumi/tests/oshkosh_demo.zip")
         epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
         assert filename.exists()
         assert epw.exists()
         umi = UmiFile.from_gis(
-            f"{'zip://' + filename.abspath()}", "Height", epw=epw
+            f"{'zip://' + filename.abspath()}", "Height", epw=epw,
+            template_lib=template_lib
         )
 
         assert umi.name == "oshkosh_demo"
