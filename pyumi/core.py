@@ -1,6 +1,7 @@
 import logging as lg
 import tempfile
 import time
+import uuid
 from sqlite3 import connect
 from zipfile import ZipFile
 
@@ -17,7 +18,7 @@ tqdm.pandas()
 
 
 def geom_to_curve(feature):
-    """Converts the GeoSeries to a :class:`rhino3dm.PolylineCurve`
+    """Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
 
     Args:
         feature (GeoSeries):
@@ -36,7 +37,7 @@ def geom_to_curve(feature):
 
 def geom_to_brep(feature, height_column_name):
     """Converts the Shapely :class:`shapely.geometry.base.BaseGeometry` to
-    a :class:`rhino3dm.Brep`.
+    a :class:`_file3dm.Brep`.
 
     Args:
         feature (GeoSeries): A GeoSeries containing a `geometry` column.
@@ -46,16 +47,20 @@ def geom_to_brep(feature, height_column_name):
     Returns:
 
     """
-    # Converts the GeoSeries to a :class:`rhino3dm.PolylineCurve`
+    # Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
 
     # if has interiors
     if len(feature.geometry.interiors) > 0:
         # Todo: Implement logic to create holes in Brep
         # For now, forces `_noholes_brep`
-        return _noholed_brep(feature, height_column_name)
+        return _withhole_brep(feature, height_column_name)
     else:
         # only one exterior footprint to deal with
         return _noholed_brep(feature, height_column_name)
+
+
+def _withhole_brep(feature, height_column_name):
+    return _noholed_brep(feature, height_column_name)
 
 
 def _noholed_brep(feature, height_column_name):
@@ -92,7 +97,7 @@ def _noholed_brep(feature, height_column_name):
 
 class UmiFile:
     def __init__(self, project_name="unnamed", epw=None, template_lib=None):
-        """An UmiFile pacakge containing the rhino3dm file, the project
+        """An UmiFile pacakge containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
 
         Args:
@@ -103,10 +108,13 @@ class UmiFile:
         self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
 
         self.name = project_name
-        self.rhino3dm = None
+        self.file3dm = File3dm()
         self.umi_sqlite3 = None
         self.template_lib = template_lib
         self.epw = epw
+
+        # Initiate Layers in 3dm file
+        self.umiLayers = UmiLayers(self.file3dm)
 
         with connect(self.tmp / "umi.sqlite3") as con:
             con.execute(create_nonplottable_setting)
@@ -125,14 +133,15 @@ class UmiFile:
         Args:
             value:
         """
-        set_epw = Path(value).expand()
-        if set_epw.exists() and set_epw.endswith(".epw"):
-            # try remove if already there
-            (self.tmp / set_epw.basename()).remove_p()
-            # copy to self.tmp
-            tmp_epw = set_epw.copy(self.tmp)
-            # set attr value
-            self._epw = tmp_epw
+        if value:
+            set_epw = Path(value).expand()
+            if set_epw.exists() and set_epw.endswith(".epw"):
+                # try remove if already there
+                (self.tmp / set_epw.basename()).remove_p()
+                # copy to self.tmp
+                tmp_epw = set_epw.copy(self.tmp)
+                # set attr value
+                self._epw = tmp_epw
         else:
             self._epw = None
 
@@ -224,8 +233,13 @@ class UmiFile:
             lg.info(f"{gdf.size} breps created")
         gdf = gdf.loc[~errored_brep, :]
 
+        # create the UmiFile object
+        epw = kwargs.pop("epw", "USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        name = kwargs.pop("name", input_file.stem)
+        umi = cls(project_name=name, epw=epw)
+
         # Create blank 3DM file
-        threedm = File3dm()
+        threedm = umi.file3dm
 
         # Set ModelUnitSystem to Meters
         threedm.Settings.ModelUnitSystem = (
@@ -233,12 +247,10 @@ class UmiFile:
         )
 
         # Add all Breps to Model and append UUIDs to gdf
-        gdf["guid"] = gdf["rhino_geom"].apply(threedm.Objects.AddBrep)
+        gdf["guid"] = gdf["rhino_geom"].progress_apply(threedm.Objects.AddBrep)
 
-        # create the UmiFile object
-        epw = kwargs.pop("epw", "USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
-        name = kwargs.pop("name", input_file.stem)
-        umi = cls(project_name=name, epw=epw)
+        for obj in threedm.Objects:
+            obj.Attributes.LayerIndex = umi.umiLayers.Buildings.Index
 
         # save 3dm file to UmiFile.tmp dir
         threedm.Write(umi.tmp / (umi.name + ".3dm"), 6)
@@ -258,6 +270,53 @@ class UmiFile:
                 zip_file.write(file, file.basename())
 
         lg.info(f"Saved to {(Path(self.name) + '.umi').abspath()}")
+
+
+class UmiLayers:
+    _umiLayers = {
+        "umi": {
+            "Buildings": {},
+            "Context": {
+                "Site boundary": {},
+                "Streets": {},
+                "Parks": {},
+                "Boundary objects": {},
+                "Shading": {},
+                "Trees": {},
+            },
+        }
+    }
+
+    def __init__(self, file3dm):
+        """
+
+        Args:
+            file3dm (File3dm):
+        """
+        self._file3dm = file3dm
+
+        def iter_layers(d, _pid):
+            for k, v in d.items():
+                _layer = Layer()  # Create Layer
+                _layer.Name = k  # Set Layer Name
+                _layer.ParentLayerId = _pid  # Set parent Id
+                self._file3dm.Layers.Add(_layer)  # Add Layer
+                _layer, *_ = filter(
+                    lambda x: x.Name == k, self._file3dm.Layers
+                )
+
+                # Sets Layer as class attr
+                setattr(UmiLayers, _layer.Name, _layer)
+
+                # Iter
+                if isinstance(v, (dict,)):
+                    if bool(v):
+                        _pid = _layer.Id
+                    iter_layers(v, _pid)
+
+        iter_layers(
+            self._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000")
+        )
 
 
 create_nonplottable_setting = """create table nonplottable_setting
@@ -287,8 +346,7 @@ create_plottatble_setting = """create table plottable_setting
 
 create_series = """create table series
 (
-    id         INTEGER
-        primary key,
+    id         INTEGER primary key,
     name       TEXT not null,
     module     TEXT not null,
     object_id  TEXT not null,
@@ -299,10 +357,8 @@ create_series = """create table series
 
 create_data_point = """create table data_point
 (
-    series_id       INTEGER not null
-        references series
-            on delete cascade,
+    series_id       INTEGER not null references series on delete cascade,
     index_in_series INTEGER not null,
-    value           REAL    not null,
+    value           REAL    not null, 
     primary key (series_id, index_in_series)
 );"""
