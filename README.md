@@ -1,10 +1,12 @@
+![Python package](https://github.com/samuelduchesne/pyumi/workflows/Python%20package/badge.svg?branch=master)
+
 # pyumi
 
 [The beginning of] an umi project handler written in python. Create and Open UMI projects.
 
 ## ShapefileToUmi
 
-pyumi was created firts to accelerate the creation of UMI projects from GIS datasets. pyumi builds on top of GeoPandas and rhino3dm to handle GIS geometry processing and handling. Convert any GIS dataset (shapefile, geojson, etc.) to a working UMI project. 
+pyumi was created first to accelerate the creation of UMI projects from GIS datasets. pyumi builds on top of GeoPandas and rhino3dm to handle GIS geometry processing and handling. Convert any GIS dataset (shapefile, geojson, etc.) to a working UMI project. 
 
 ## Work in progress
 
