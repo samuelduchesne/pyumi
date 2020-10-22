@@ -1,15 +1,15 @@
+import logging as lg
 import tempfile
 import time
 from sqlite3 import connect
 from zipfile import ZipFile
 
 import geopandas as gpd
+import numpy as np
 from geopandas import GeoSeries
 from path import Path
 from rhino3dm import *
-import logging as lg
 from tqdm import tqdm, tqdm_notebook
-import numpy as np
 
 # Create and register a new `tqdm` instance with `pandas`
 # (can use tqdm_gui, optional kwargs, etc.)
@@ -140,7 +140,7 @@ class UmiFile:
             **kwargs: keyword arguments passed to UmiFile constructor.
         """
         if to_crs is None:
-            to_crs = {'init': 'epsg:3857'}
+            to_crs = {"init": "epsg:3857"}
         input_file = Path(input_file)
 
         # First, load the file to a GeoDataFrame
