@@ -175,6 +175,8 @@ class UmiFile:
         height_column_name,
         epw,
         template_lib,
+        template_map,
+        map_to_column,
         to_crs=None,
         **kwargs,
     ):
@@ -291,13 +293,30 @@ class UmiFile:
             "WindowToWallRatioRoof": 0,
             "WindowToWallRatioS": 0.4,
             "WindowToWallRatioW": 0.4,
-            "TemplateName": "B_Off_0",
+            "TemplateName": None,
             "EnergySimulatorName": "UMI Shoeboxer (default)",
             "FloorToFloorStrict": 0,
         }
         gdf[list(bldg_attributes.keys())] = gdf.apply(
             lambda x: pd.Series(bldg_attributes), axis=1
         )
+        # Assign template names using map. Changes elements based on the
+        # chosen column name parameter.
+        _index = gdf.index
+        gdf = (
+            gdf.set_index(map_to_column)
+            .drop(columns=["TemplateName"])
+            .join(
+                pd.DataFrame(template_map)
+                .stack()
+                .swaplevel()
+                .rename_axis(map_to_column)
+                .rename("TemplateName")
+                .to_frame(),
+                on=map_to_column,
+            )
+        )
+        gdf.index = _index
 
         for idx, series in gdf.iterrows():
             for attr in [
@@ -361,6 +380,8 @@ class UmiFile:
 
 
 class UmiLayers:
+    """Handles creation of :class:`rhino3dm.Layer` for umi projects"""
+
     _umiLayers = {
         "umi": {
             "Buildings": {},

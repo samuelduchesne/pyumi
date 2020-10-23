@@ -20,17 +20,65 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 - features (rows) that have a missing `height` attribute will be ignored.
 - features that are made of a MultiPolygon will be broken down into distinct Breps and will share the same attributes.
 
-In this particular example, knowing that the height attribute column is named `Height`, we can simply create the umi project by calling the `from_gis()` constructor.
+We can simply create the umi project by calling the `from_gis()` constructor. For this particular example, the height
+attribute column in the GIS file is named `Height`. We also need to pass a `template_map` which is simply a 
+dictionary of the relationship between the GIS attribute column and a specific template name in the template library.
+
+The oshkosh_demo has 3 different use_types: COMMERCIAL, RESIDENTIAL and MIXEDUSE. It is not necessary to assign each
+entries with a template. For example, if we ignore the *MIXEDUSE* template, the template map is simply:
+ 
+``` python
+{
+    "COMMERCIAL": "B_Off_0",
+    "RESIDENTIAL": "B_Res_0_WoodFrame"
+}
+```
+
+When opening this project in UMI, the buildings with the MIXEDUSE attribute will not have any tempaltes assigned to
+them.
 
 ``` python
 from pyumi.core import UmiFile
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
+template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
 umi = UmiFile.from_gis(
     "zip://" + filename,
     "Height",  # height attr column name
     epw=epw,
     template_lib=template_lib,
+    template_map=template_map,
+    map_to_column="Use_Type",
+)
+```
+
+## MultiLevel template assigment
+
+Let's say that the template assignment follows an additional attribute, the `Year_Built`. The template_map simply needs
+to have an additional level (nested dict):
+ 
+ ``` python
+{
+    "COMMERCIAL": {1948: "B_Off_0", 1970: "B_Off_0"},
+    "RESIDENTIAL": {1948:"B_Res_0_WoodFrame", 1970: "B_Res_0_WoodFrame"}
+}
+```
+
+Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
+
+``` python
+from pyumi.core import UmiFile
+filename = "pyumi/tests/oshkosh_demo.zip"
+epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
+template_lib = "pyumi/tests/BostonTemplateLibrary.json"
+template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
+umi = UmiFile.from_gis(
+    "zip://" + filename,
+    "Height",  # height attr column name
+    epw=epw,
+    template_lib=template_lib,
+    template_map=template_map,
+    map_to_column=["Use_Type", "Year_Built"],
 )
 ```
