@@ -3,7 +3,7 @@ import logging as lg
 import pytest
 from path import Path
 
-from pyumi.core import UmiFile
+from pyumi.core import UmiProject
 
 
 class TestCore:
@@ -29,7 +29,7 @@ class TestCore:
         epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiFile.from_gis(
+        umi = UmiProject.from_gis(
             filename,
             "Height",
             epw=epw,
@@ -37,7 +37,8 @@ class TestCore:
             template_map=TestCore.depth2,
             map_to_column="Use_Type",
         )
-
+        # save UmiProject to created package.
+        umi.save()
         assert umi.name == "oshkosh_demo"
 
     @pytest.mark.parametrize(
@@ -53,7 +54,7 @@ class TestCore:
         epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiFile.from_gis(
+        umi = UmiProject.from_gis(
             filename,
             "Height",
             epw=epw,
@@ -61,3 +62,5 @@ class TestCore:
             template_map=multi_attributes,
             map_to_column=map_to_column,
         )
+        # save UmiProject to created package.
+        umi.save()

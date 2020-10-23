@@ -1,3 +1,4 @@
+import enum
 import logging as lg
 import tempfile
 import time
@@ -90,9 +91,9 @@ def _noholed_brep(feature, height_column_name):
     return _brep
 
 
-class UmiFile:
+class UmiProject:
     def __init__(self, project_name="unnamed", epw=None, template_lib=None):
-        """An UmiFile pacakge containing the _file3dm file, the project
+        """An UmiProject pacakge containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
 
         Args:
@@ -191,7 +192,7 @@ class UmiFile:
                 height values. Missing values will be ignored.
             to_crs (dict): The output CRS to which the file will be projected
                 to. Units must be meters.
-            **kwargs: keyword arguments passed to UmiFile constructor.
+            **kwargs: keyword arguments passed to UmiProject constructor.
         """
         if to_crs is None:
             to_crs = {"init": "epsg:3857"}
@@ -252,12 +253,12 @@ class UmiFile:
             lg.info(f"{gdf.size} breps created")
         gdf = gdf.loc[~errored_brep, :]
 
-        # create the UmiFile object
+        # create the UmiProject object
         name = kwargs.pop("name", input_file.stem)
-        umi = cls(project_name=name, epw=epw, template_lib=template_lib)
+        umi_file = cls(project_name=name, epw=epw, template_lib=template_lib)
 
         # Create blank 3DM file
-        threedm = umi.file3dm
+        threedm = umi_file.file3dm
 
         # Set ModelUnitSystem to Meters
         threedm.Settings.ModelUnitSystem = threedm.Settings.ModelUnitSystem.Meters
@@ -266,13 +267,10 @@ class UmiFile:
         gdf["guid"] = gdf["rhino_geom"].progress_apply(threedm.Objects.AddBrep)
 
         for obj in threedm.Objects:
-            obj.Attributes.LayerIndex = umi.umiLayers.Buildings.Index
+            obj.Attributes.LayerIndex = umi_file.umiLayers.Buildings.Index
             obj.Attributes.Name = str(
                 gdf.loc[gdf.guid == obj.Attributes.Id].index.values[0]
             )
-
-        # save 3dm file to UmiFile.tmp dir
-        threedm.Write(umi.tmp / (umi.name + ".3dm"), 6)
 
         bldg_attributes = {
             "CoreDepth": 1,
@@ -357,7 +355,7 @@ class UmiFile:
                     attr,
                     str(series[attr]),
                 )
-                umi.umi_sqlite3.execute(
+                umi_file.umi_sqlite3.execute(
                     "INSERT INTO plottable_setting (key, object_id, name, value) "
                     "VALUES (?, ?, ?, ?)",
                     nonplottable_settings,
@@ -374,7 +372,7 @@ class UmiFile:
                     attr,
                     str(series[attr]),
                 )
-                umi.umi_sqlite3.execute(
+                umi_file.umi_sqlite3.execute(
                     "INSERT INTO nonplottable_setting (key, object_id, name, value) "
                     "VALUES (?, ?, ?, ?)",
                     plottatble_settings,
@@ -401,9 +399,12 @@ class UmiFile:
         return umi_file
 
     def open(self):
+        """Todo: implement Open method"""
         pass
 
     def save(self):
+        # save 3dm file to UmiProject.tmp dir
+        self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
         self.umi_sqlite3.commit()
         outfile = Path(self.name) + ".umi"
         with ZipFile(outfile, "w") as zip_file:
@@ -431,6 +432,10 @@ class UmiLayers:
         }
     }
 
+    @classmethod
+    def __getitem__(cls, x):
+        return getattr(cls, x)
+
     def __init__(self, file3dm):
         """
 
@@ -456,7 +461,9 @@ class UmiLayers:
                         _pid = _layer.Id
                     iter_layers(v, _pid)
 
-        iter_layers(self._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000"))
+        iter_layers(
+            UmiLayers._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000")
+        )
 
 
 create_nonplottable_setting = """create table nonplottable_setting
