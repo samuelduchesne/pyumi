@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from geopandas import GeoSeries
 from path import Path
 from rhino3dm import *
@@ -109,7 +110,6 @@ class UmiFile:
 
         self.name = project_name
         self.file3dm = File3dm()
-        self.umi_sqlite3 = None
         self.template_lib = template_lib
         self.epw = epw
 
@@ -122,6 +122,8 @@ class UmiFile:
             con.execute(create_plottatble_setting)
             con.execute(create_series)
             con.execute(create_data_point)
+
+        self.umi_sqlite3 = con
 
     @property
     def epw(self):
@@ -145,6 +147,24 @@ class UmiFile:
         else:
             self._epw = None
 
+    @property
+    def template_lib(self):
+        return self._template_lib
+
+    @template_lib.setter
+    def template_lib(self, value):
+        if value:
+            set_lib = Path(value).expand()
+            if set_lib.exists() and set_lib.endswith(".json"):
+                # try remove if already there
+                (self.tmp / set_lib.basename()).remove_p()
+                # copy to self.tmp
+                tmp_lib = set_lib.copy(self.tmp)
+                # set attr value
+                self._template_lib = tmp_lib
+        else:
+            self._template_lib = None
+
     def __del__(self):
         self.tmp.rmtree_p()
 
@@ -153,6 +173,8 @@ class UmiFile:
         cls,
         input_file,
         height_column_name,
+        epw,
+        template_lib,
         to_crs=None,
         **kwargs,
     ):
@@ -234,9 +256,8 @@ class UmiFile:
         gdf = gdf.loc[~errored_brep, :]
 
         # create the UmiFile object
-        epw = kwargs.pop("epw", "USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         name = kwargs.pop("name", input_file.stem)
-        umi = cls(project_name=name, epw=epw)
+        umi = cls(project_name=name, epw=epw, template_lib=template_lib)
 
         # Create blank 3DM file
         threedm = umi.file3dm
@@ -251,9 +272,75 @@ class UmiFile:
 
         for obj in threedm.Objects:
             obj.Attributes.LayerIndex = umi.umiLayers.Buildings.Index
+            obj.Attributes.Name = str(
+                gdf.loc[gdf.guid == obj.Attributes.Id].index.values[0]
+            )
 
         # save 3dm file to UmiFile.tmp dir
         threedm.Write(umi.tmp / (umi.name + ".3dm"), 6)
+
+        bldg_attributes = {
+            "CoreDepth": 1,
+            "Envr": 0.01,
+            "Fdist": 3,
+            "FloorToFloorHeight": 3,
+            "PerimeterOffset": 3,
+            "RoomWidth": 0.4,
+            "WindowToWallRatioE": 0.4,
+            "WindowToWallRatioN": 0.4,
+            "WindowToWallRatioRoof": 0,
+            "WindowToWallRatioS": 0.4,
+            "WindowToWallRatioW": 0.4,
+            "TemplateName": "B_Off_0",
+            "EnergySimulatorName": "UMI Shoeboxer (default)",
+            "FloorToFloorStrict": 0,
+        }
+        gdf[list(bldg_attributes.keys())] = gdf.apply(
+            lambda x: pd.Series(bldg_attributes), axis=1
+        )
+
+        for idx, series in gdf.iterrows():
+            for attr in [
+                "CoreDepth",
+                "Envr",
+                "Fdist",
+                "FloorToFloorHeight",
+                "PerimeterOffset",
+                "RoomWidth",
+                "WindowToWallRatioE",
+                "WindowToWallRatioN",
+                "WindowToWallRatioRoof",
+                "WindowToWallRatioS",
+                "WindowToWallRatioW",
+            ]:
+                nonplottable_settings = (
+                    "unused",
+                    str(series["guid"]),
+                    attr,
+                    str(series[attr]),
+                )
+                umi.umi_sqlite3.execute(
+                    "INSERT INTO plottable_setting (key, object_id, name, value) "
+                    "VALUES (?, ?, ?, ?)",
+                    nonplottable_settings,
+                )
+        for idx, series in gdf.iterrows():
+            for attr in [
+                "TemplateName",
+                "EnergySimulatorName",
+                "FloorToFloorStrict",
+            ]:
+                plottatble_settings = (
+                    "unsused",
+                    str(series["guid"]),
+                    attr,
+                    str(series[attr]),
+                )
+                umi.umi_sqlite3.execute(
+                    "INSERT INTO nonplottable_setting (key, object_id, name, value) "
+                    "VALUES (?, ?, ?, ?)",
+                    plottatble_settings,
+                )
 
         # save UmiFile to created package.
         umi.save()
@@ -263,6 +350,7 @@ class UmiFile:
         pass
 
     def save(self):
+        self.umi_sqlite3.commit()
         outfile = Path(self.name) + ".umi"
         with ZipFile(outfile, "w") as zip_file:
             for file in self.tmp.files():
