@@ -4,14 +4,24 @@
 
 [The beginning of] an umi project handler written in python. Create and Open UMI projects.
 
+# Features
+
+- Create a large scale UMI project from a GIS dataset
+- Quickly assign templates based on attribute relationship.
+- Automatically download street networks from Open Street Map for the walkability module.
+- Automatically create a site boundary based on the convex hull of the GIS dataset
+ extent.
+ 
 ## ShapefileToUmi
 
-pyumi was created first to accelerate the creation of UMI projects from GIS datasets. pyumi builds on top of GeoPandas and rhino3dm to handle GIS geometry processing and handling. Convert any GIS dataset (shapefile, geojson, etc.) to a working UMI project. 
+pyumi was created first to accelerate the creation of UMI projects from GIS datasets.
+pyumi builds on top of GeoPandas and rhino3dm to handle GIS geometry processing and
+handling. Convert any GIS dataset (shapefile, geojson, etc.) to a working UMI project.
 
 ## Work in progress
 
-- Holes in buildings, such as courtyards, are currently not supported. If you know how to handle holes in extrusions in the rhino3dm.py interface of OpenNURBS, please let me know!
-
+- Holes in buildings, such as courtyards, are currently not supported. If you know how to
+handle holes in extrusions in the rhino3dm.py interface of OpenNURBS, please let me know!
 
 # Tutorial
 
@@ -82,6 +92,32 @@ umi = UmiProject.from_gis(
     map_to_column=["Use_Type", "Year_Built"],
 )
 ```
+
+## Download Street Network
+
+For UmiProjects created from GIS datasets (`from_gis`) it is possible to add a street
+network on the Streets layer. This street network is automatically downloaded from Open
+Street Map thanks to the excellent `osmnx` package.
+
+To add a street network, simply call `.add_street_graph` on the UmiProject object and
+ `.save()`:
+ 
+ ``` python
+# with the umi project created above
+umi.add_street_graph(
+    network_type="all_private",
+    simplify=True,
+    retain_all=False,
+    truncate_by_edge=False,
+    clean_periphery=True,
+    custom_filter=None
+)
+```
+
+Many options are available to fine tune the end result. For example, for the `network_type
+`, users can choose from one of 'walk', 'bike', 'drive', 'drive_service', 'all', or
+'all_private'. More information at
+[osmnx](https://osmnx.readthedocs.io/en/stable/osmnx.html#osmnx.graph.graph_from_polygon).
 
 ## Site Boundary
 
