@@ -22,10 +22,15 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 
 In this particular example, knowing that the height attribute column is named `Height`, we can simply create the umi project by calling the `from_gis()` constructor.
 
-```
+``` python
 from pyumi.core import UmiFile
+filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
+template_lib = "pyumi/tests/BostonTemplateLibrary.json"
 umi = UmiFile.from_gis(
-    "zip://pyumi/tests/oshkosh_demo.zip", "Height", epw=epw
+    "zip://" + filename,
+    "Height",  # height attr column name
+    epw=epw,
+    template_lib=template_lib,
 )
 ```
