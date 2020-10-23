@@ -380,9 +380,25 @@ class UmiFile:
                     plottatble_settings,
                 )
 
-        # save UmiFile to created package.
-        umi.save()
-        return umi
+        # Add Site boundary PolylineCurve. Uses the exterior of the
+        # convex_hull of the unary_union of all footprints. This is a good
+        # approximation of a site boundary in most cases.
+        boundary = PolylineCurve(
+            Point3dList(
+                [
+                    Point3d(x, y, 0)
+                    for x, y, *z in gdf.geometry.unary_union.convex_hull.exterior.coords
+                ]
+            )
+        )
+        guid = umi_file.file3dm.Objects.AddCurve(boundary)
+        fileObj, *_ = filter(
+            lambda x: x.Attributes.Id == guid, umi_file.file3dm.Objects
+        )
+        fileObj.Attributes.LayerIndex = umi_file.umiLayers["Site boundary"].Index
+        fileObj.Attributes.Name = "Convex hull boundary"
+
+        return umi_file
 
     def open(self):
         pass

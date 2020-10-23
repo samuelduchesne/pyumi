@@ -10,7 +10,7 @@ pyumi was created first to accelerate the creation of UMI projects from GIS data
 
 ## Work in progress
 
-- Holes in buildings, such as courtyards, are currently not supported. If you know how to handle holes in extrusions in the rhinod3dm.py interface of OpenNURBS, please let me know!
+- Holes in buildings, such as courtyards, are currently not supported. If you know how to handle holes in extrusions in the rhino3dm.py interface of OpenNURBS, please let me know!
 
 
 # Tutorial
@@ -34,16 +34,16 @@ entries with a template. For example, if we ignore the *MIXEDUSE* template, the 
 }
 ```
 
-When opening this project in UMI, the buildings with the MIXEDUSE attribute will not have any tempaltes assigned to
+When opening this project in UMI, the buildings with the MIXEDUSE attribute will not have any templates assigned to
 them.
 
 ``` python
-from pyumi.core import UmiFile
+from pyumi.core import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
-umi = UmiFile.from_gis(
+umi = UmiProject.from_gis(
     "zip://" + filename,
     "Height",  # height attr column name
     epw=epw,
@@ -68,12 +68,12 @@ to have an additional level (nested dict):
 Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
 
 ``` python
-from pyumi.core import UmiFile
+from pyumi.core import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
-umi = UmiFile.from_gis(
+umi = UmiProject.from_gis(
     "zip://" + filename,
     "Height",  # height attr column name
     epw=epw,
@@ -82,3 +82,9 @@ umi = UmiFile.from_gis(
     map_to_column=["Use_Type", "Year_Built"],
 )
 ```
+
+## Site Boundary
+
+A Site boundary is automatically generated for the extent of the GIS input file. It
+generates a convex hull PolylineCurve which resides on the umi::Context:Site boundary
+layer.
