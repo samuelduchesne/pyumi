@@ -3,3 +3,4 @@ pytest
 tqdm
 path
 rhino3dm
+osmnx
