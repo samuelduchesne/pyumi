@@ -30,9 +30,7 @@ def geom_to_curve(feature):
     # Todo: add interiors and planar check
 
     return PolylineCurve(
-        Point3dList(
-            [Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords]
-        )
+        Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
     )
 
 
@@ -76,16 +74,12 @@ def _noholed_brep(feature, height_column_name):
         Brep: The Brep object
     """
     _rhinoCurve: Curve = PolylineCurve(
-        Point3dList(
-            [Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords]
-        )
+        Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
     )
     # Create the extrusion using the height attr. For some reason,
     # value must be negative for the extrusion to go upwards.
     _ext = Extrusion.Create(
-        _rhinoCurve,
-        height=-feature[height_column_name],  # negative value
-        cap=True,
+        _rhinoCurve, height=-feature[height_column_name], cap=True,  # negative value
     )
     if _ext:
         # If Extrusion did not fail, create Brep
@@ -166,6 +160,7 @@ class UmiFile:
             self._template_lib = None
 
     def __del__(self):
+        self.umi_sqlite3.close()
         self.tmp.rmtree_p()
 
     @classmethod
@@ -265,9 +260,7 @@ class UmiFile:
         threedm = umi.file3dm
 
         # Set ModelUnitSystem to Meters
-        threedm.Settings.ModelUnitSystem = (
-            threedm.Settings.ModelUnitSystem.Meters
-        )
+        threedm.Settings.ModelUnitSystem = threedm.Settings.ModelUnitSystem.Meters
 
         # Add all Breps to Model and append UUIDs to gdf
         gdf["guid"] = gdf["rhino_geom"].progress_apply(threedm.Objects.AddBrep)
@@ -300,21 +293,47 @@ class UmiFile:
         gdf[list(bldg_attributes.keys())] = gdf.apply(
             lambda x: pd.Series(bldg_attributes), axis=1
         )
+
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
+        def on_frame(map_to_column, template_map):
+            """Returns the DataFrame for left_join based on number of nested levels"""
+            depth = dict_depth(template_map)
+            if depth == 2:
+                return (
+                    pd.Series(template_map)
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            elif depth == 3:
+                return (
+                    pd.DataFrame(template_map)
+                    .stack()
+                    .swaplevel()
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            elif depth == 4:
+                return (
+                    pd.DataFrame(template_map)
+                    .stack()
+                    .swaplevel()
+                    .apply(pd.Series)
+                    .stack()
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            else:
+                raise NotImplementedError("5 levels or more are not yet supported")
+
         _index = gdf.index
         gdf = (
             gdf.set_index(map_to_column)
             .drop(columns=["TemplateName"])
-            .join(
-                pd.DataFrame(template_map)
-                .stack()
-                .swaplevel()
-                .rename_axis(map_to_column)
-                .rename("TemplateName")
-                .to_frame(),
-                on=map_to_column,
-            )
+            .join(on_frame(map_to_column, template_map), on=map_to_column)
         )
         gdf.index = _index
 
@@ -410,9 +429,7 @@ class UmiLayers:
                 _layer.Name = k  # Set Layer Name
                 _layer.ParentLayerId = _pid  # Set parent Id
                 self._file3dm.Layers.Add(_layer)  # Add Layer
-                _layer, *_ = filter(
-                    lambda x: x.Name == k, self._file3dm.Layers
-                )
+                _layer, *_ = filter(lambda x: x.Name == k, self._file3dm.Layers)
 
                 # Sets Layer as class attr
                 setattr(UmiLayers, _layer.Name, _layer)
@@ -423,9 +440,7 @@ class UmiLayers:
                         _pid = _layer.Id
                     iter_layers(v, _pid)
 
-        iter_layers(
-            self._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000")
-        )
+        iter_layers(self._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000"))
 
 
 create_nonplottable_setting = """create table nonplottable_setting
@@ -471,3 +486,14 @@ create_data_point = """create table data_point
     value           REAL    not null, 
     primary key (series_id, index_in_series)
 );"""
+
+
+from collections import Sequence
+from itertools import chain, count
+
+
+# Python3 Program to find depth of a dictionary
+def dict_depth(dic, level=1):
+    if not isinstance(dic, dict) or not dic:
+        return level
+    return max(dict_depth(dic[key], level + 1) for key in dic)
