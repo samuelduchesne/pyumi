@@ -9,7 +9,7 @@ from zipfile import ZipFile
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from geopandas import GeoSeries
+from geopandas import GeoDataFrame, GeoSeries
 from path import Path
 from rhino3dm import *
 from tqdm import tqdm, tqdm_notebook
@@ -92,6 +92,16 @@ def _noholed_brep(feature, height_column_name):
 
 
 class UmiProject:
+    """An UMI Project
+
+    Attributes:
+        to_crs (dict): The
+        gdf_world (GeoDataFrame): GeoDataFrame in original world coordinates
+        gdf_3dm (GeoDataFrame): GeoDataFrame in projected coordinates and
+            translated to Rhino origin (0,0,0).
+
+    """
+
     def __init__(self, project_name="unnamed", epw=None, template_lib=None):
         """An UmiProject pacakge containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -101,6 +111,11 @@ class UmiProject:
             epw (str or Path): Path of the weather file.
             template_lib (str or Path):
         """
+        from osmnx.settings import default_crs
+
+        self.to_crs = default_crs
+        self.gdf_world: GeoDataFrame = GeoDataFrame()
+        self.gdf_3dm = GeoDataFrame()
         self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
 
         self.name = project_name
@@ -197,14 +212,12 @@ class UmiProject:
         Returns:
             UmiProject: The UmiProject. Needs to be saved
         """
-        if to_crs is None:
-            to_crs = {"init": "epsg:3857"}
         input_file = Path(input_file)
 
         # First, load the file to a GeoDataFrame
         start_time = time.time()
         lg.info("reading input file...")
-        gdf = gpd.read_file(input_file).to_crs(to_crs)
+        gdf = gpd.read_file(input_file)
         lg.info(
             f"Read {gdf.memory_usage(index=True).sum() / 1000:,.1f}KB from"
             f" {input_file} in"
@@ -219,6 +232,7 @@ class UmiProject:
             template_lib,
             template_map,
             map_to_column,
+            to_crs,
             **kwargs,
         )
 
@@ -231,6 +245,7 @@ class UmiProject:
         template_lib,
         template_map,
         map_to_column,
+        to_crs=None,
         **kwargs,
     ):
         """Returns an UMI project by reading a GeoDataFrame. A height
@@ -253,7 +268,6 @@ class UmiProject:
         Returns:
             UmiProject: The UmiProject. Needs to be saved.
         """
-
         # Filter rows; Display invalid geometries in log
         valid_geoms = gdf.geometry.is_valid
         if (~valid_geoms).any():
@@ -270,17 +284,23 @@ class UmiProject:
         valid_attrs = ~gdf[height_column_name].isna()
         gdf = gdf.loc[valid_attrs, :]
 
-        # Move to center; Makes the Shoeboxer happy
-        centroid = gdf.cascaded_union.convex_hull.centroid
-        xoff, yoff = centroid.x, centroid.y
-        gdf.geometry = gdf.translate(-xoff, -yoff)
-
         # Explode to singlepart
         gdf = gdf.explode()  # The index of the input geodataframe is no
         # longer unique and is replaced with a multi-index (original index
         # with additional level indicating the multiple geometries: a new
         # zero-based index for each single part geometry per multi-part
         # geometry).
+
+        gdf_world = gdf.copy()
+
+        if to_crs is None:
+            to_crs = {"init": "epsg:3857"}
+        gdf = gdf.to_crs(to_crs)
+
+        # Move to center; Makes the Shoeboxer happy
+        centroid = gdf.cascaded_union.convex_hull.centroid
+        xoff, yoff = centroid.x, centroid.y
+        gdf.geometry = gdf.translate(-xoff, -yoff)
 
         # Create Rhino Geometries in two steps
         gdf["rhino_geom"] = gdf.progress_apply(
@@ -301,10 +321,13 @@ class UmiProject:
 
         # create the UmiProject object
         name = kwargs.get("name")
-        umi_file = cls(project_name=name, epw=epw, template_lib=template_lib)
+        umi_project = cls(project_name=name, epw=epw, template_lib=template_lib)
+        umi_project.centroid = centroid  # save centroid from above
+        umi_project.gdf_world = gdf_world  # assign gdf_world here
+        umi_project.to_crs = gdf._crs  # assign to_crs here
 
         # Create blank 3DM file
-        threedm = umi_file.file3dm
+        threedm = umi_project.file3dm
 
         # Set ModelUnitSystem to Meters
         threedm.Settings.ModelUnitSystem = threedm.Settings.ModelUnitSystem.Meters
@@ -313,7 +336,7 @@ class UmiProject:
         gdf["guid"] = gdf["rhino_geom"].progress_apply(threedm.Objects.AddBrep)
 
         for obj in threedm.Objects:
-            obj.Attributes.LayerIndex = umi_file.umiLayers.Buildings.Index
+            obj.Attributes.LayerIndex = umi_project.umiLayers.Buildings.Index
             obj.Attributes.Name = str(
                 gdf.loc[gdf.guid == obj.Attributes.Id].index.values[0]
             )
@@ -401,7 +424,7 @@ class UmiProject:
                     attr,
                     str(series[attr]),
                 )
-                umi_file.umi_sqlite3.execute(
+                umi_project.umi_sqlite3.execute(
                     "INSERT INTO plottable_setting (key, object_id, name, value) "
                     "VALUES (?, ?, ?, ?)",
                     nonplottable_settings,
@@ -418,7 +441,7 @@ class UmiProject:
                     attr,
                     str(series[attr]),
                 )
-                umi_file.umi_sqlite3.execute(
+                umi_project.umi_sqlite3.execute(
                     "INSERT INTO nonplottable_setting (key, object_id, name, value) "
                     "VALUES (?, ?, ?, ?)",
                     plottatble_settings,
@@ -435,14 +458,14 @@ class UmiProject:
                 ]
             )
         )
-        guid = umi_file.file3dm.Objects.AddCurve(boundary)
+        guid = umi_project.file3dm.Objects.AddCurve(boundary)
         fileObj, *_ = filter(
-            lambda x: x.Attributes.Id == guid, umi_file.file3dm.Objects
+            lambda x: x.Attributes.Id == guid, umi_project.file3dm.Objects
         )
-        fileObj.Attributes.LayerIndex = umi_file.umiLayers["Site boundary"].Index
+        fileObj.Attributes.LayerIndex = umi_project.umiLayers["Site boundary"].Index
         fileObj.Attributes.Name = "Convex hull boundary"
 
-        return umi_file
+        return umi_project
 
     def open(self):
         """Todo: implement Open method"""
@@ -459,6 +482,108 @@ class UmiProject:
                 zip_file.write(file, file.basename())
 
         lg.info(f"Saved to {(Path(self.name) + '.umi').abspath()}")
+
+    def add_street_graph(
+        self,
+        polygon=None,
+        network_type="all_private",
+        simplify=True,
+        retain_all=False,
+        truncate_by_edge=False,
+        clean_periphery=True,
+        custom_filter=None,
+    ):
+        """Downloads a spatial street graph from OpenStreetMap's APIs and
+        transforms it to PolylineCurves to the self.file3dm document.
+
+        Uses :ref:`osmnx` to retrieve the street graph. The same parameters
+        as :met:`osmnx.graph.graph_from_polygon` are available.
+
+        Args:
+            polygon (Polygon or MultiPolygon, optional): If none, the extent
+                of the project GIS dataset is used (convex hull). If not
+                None, polygon is the shape to get network data within.
+                coordinates should be in units of latitude-longitude degrees.
+            network_type (string): what type of street network to get if
+                custom_filter is None. One of 'walk', 'bike', 'drive',
+                'drive_service', 'all', or 'all_private'.
+            simplify (bool): if True, simplify the graph topology with the
+                simplify_graph function
+            retain_all (bool): if True, return the entire graph even if it
+                is not connected. otherwise, retain only the largest weakly
+                connected component.
+            truncate_by_edge (bool): if True, retain nodes outside boundary
+                polygon if at least one of node's neighbors is within the
+                polygon
+            clean_periphery (bool): if True, buffer 500m to get a graph
+                larger than requested, then simplify, then truncate it to
+                requested spatial boundaries
+            custom_filter (string): a custom network filter to be used
+                instead of the network_type presets, e.g.,
+                '["power"~"line"]' or '["highway"~"motorway|trunk"]'. Also
+                pass in a network_type that is in
+                settings.bidirectional_network_types if you want graph to be
+                fully bi-directional.
+
+        Examples:
+            >>> from pyumi.core import UmiProject
+            >>> UmiProject.from_gis().add_street_graph(
+            network_type="all_private",retain_all=True,
+            clean_periphery=False).save()
+
+            Do not forget to save!
+
+        Returns:
+            UmiProject: self
+        """
+        if getattr(self, "gdf_world", None) is None:
+            raise ValueError("This UmiProject does not contain a GeoDataFrame")
+        import osmnx as ox
+
+        # Configure osmnx
+        ox.config(log_console=True, use_cache=True)
+        if polygon is None:
+            # Create the boundary polygon. Here we use the convex_hull
+            # polygon : shapely.geometry.Polygon or shapely.geometry.MultiPolygon
+            #           the shape to get network data within. coordinates should
+            #           be in units of latitude-longitude degrees.
+            polygon = self.gdf_world.to_crs("EPSG:4326").unary_union.convex_hull
+        self.street_graph = ox.graph_from_polygon(
+            polygon,
+            network_type,
+            simplify,
+            retain_all,
+            truncate_by_edge,
+            clean_periphery,
+            custom_filter,
+        )
+        self.street_graph = ox.project_graph(self.street_graph, self.to_crs)
+        gdf_edges = ox.graph_to_gdfs(self.street_graph, nodes=False)
+        gdf_edges.geometry = gdf_edges.translate(-self.centroid.x, -self.centroid.y)
+
+        def to_polylinecurve(series):
+            """Create geometry and add to 2dm file"""
+            _3dmgeom = PolylineCurve(
+                Point3dList([Point3d(x, y, 0) for x, y in series.geometry.coords])
+            )
+            attr = ObjectAttributes()  # Initiate attributes object
+            attr.LayerIndex = self.umiLayers["Streets"].Index  # Set lyr index
+            try:
+                name_str_or_list = series["name"]
+                if name_str_or_list and isinstance(name_str_or_list, list):
+                    attr.Name = "+ ".join(name_str_or_list)  # Set Name as St. name
+                elif name_str_or_list and isinstance(name_str_or_list, str):
+                    attr.Name = name_str_or_list
+            except KeyError:
+                pass
+
+            # Add to file3dm
+            guid = self.file3dm.Objects.AddCurve(_3dmgeom, attr)
+            return guid
+
+        guids = gdf_edges.apply(to_polylinecurve, axis=1)
+
+        return self
 
 
 class UmiLayers:

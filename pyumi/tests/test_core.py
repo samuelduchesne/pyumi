@@ -37,6 +37,10 @@ class TestCore:
             template_map=TestCore.depth2,
             map_to_column="Use_Type",
         )
+        # Add a Street Graph
+        umi.add_street_graph(
+            network_type="all_private", retain_all=True, clean_periphery=False
+        )
         # save UmiProject to created package.
         umi.save()
         assert umi.name == "oshkosh_demo"
