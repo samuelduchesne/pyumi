@@ -99,7 +99,7 @@ For UmiProjects created from GIS datasets (`from_gis`) it is possible to add a s
 network on the Streets layer. This street network is automatically downloaded from Open
 Street Map thanks to the excellent `osmnx` package.
 
-To add a street network, simply call `.add_street_graph` on the UmiProject object and
+To add a street network, simply call `.add_street_graph()` on the UmiProject object and
  `.save()`:
  
  ``` python
@@ -111,7 +111,7 @@ umi.add_street_graph(
     truncate_by_edge=False,
     clean_periphery=True,
     custom_filter=None
-)
+).save()
 ```
 
 Many options are available to fine tune the end result. For example, for the `network_type
