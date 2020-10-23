@@ -1,0 +1,11 @@
+name: base
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - osmnx
+  - pip
+  - pip:
+    - tqdm
+    - path
+    - rhino3dm
