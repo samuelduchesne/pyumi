@@ -190,9 +190,12 @@ class UmiProject:
                 compatible.
             height_column_name (str): The attribute name containing the
                 height values. Missing values will be ignored.
-            to_crs (dict): The output CRS to which the file will be projected
-                to. Units must be meters.
+            to_crs (dict): The output CRS to which the file will be
+                projected to. Units must be meters.
             **kwargs: keyword arguments passed to UmiProject constructor.
+
+        Returns:
+            UmiProject: The UmiProject. Needs to be saved
         """
         if to_crs is None:
             to_crs = {"init": "epsg:3857"}
@@ -207,6 +210,49 @@ class UmiProject:
             f" {input_file} in"
             f" {time.time()-start_time:,.2f} seconds"
         )
+        if "name" not in kwargs:
+            kwargs["name"] = input_file.stem
+        return cls._from_gdf(
+            gdf,
+            height_column_name,
+            epw,
+            template_lib,
+            template_map,
+            map_to_column,
+            **kwargs,
+        )
+
+    @classmethod
+    def _from_gdf(
+        cls,
+        gdf,
+        height_column_name,
+        epw,
+        template_lib,
+        template_map,
+        map_to_column,
+        **kwargs,
+    ):
+        """Returns an UMI project by reading a GeoDataFrame. A height
+        attribute must be passed in order to extrude the
+        building footprints to their height. All buildings will have an
+        elevation of 0 m. The GeoDataFrame must be projected and the extent
+        is moved to the origin coordinates.
+
+        Args:
+            input_file (str or Path): Path to the GIS file. A zipped file
+                can be passed by appending the path with "zip:/". Any file
+                type read by :meth:`geopandas.io.file._read_file` is
+                compatible.
+            height_column_name (str): The attribute name containing the
+                height values. Missing values will be ignored.
+            to_crs (dict): The output CRS to which the file will be projected
+                to. Units must be meters.
+            **kwargs: keyword arguments passed to UmiProject constructor.
+
+        Returns:
+            UmiProject: The UmiProject. Needs to be saved.
+        """
 
         # Filter rows; Display invalid geometries in log
         valid_geoms = gdf.geometry.is_valid
@@ -254,7 +300,7 @@ class UmiProject:
         gdf = gdf.loc[~errored_brep, :]
 
         # create the UmiProject object
-        name = kwargs.pop("name", input_file.stem)
+        name = kwargs.get("name")
         umi_file = cls(project_name=name, epw=epw, template_lib=template_lib)
 
         # Create blank 3DM file
