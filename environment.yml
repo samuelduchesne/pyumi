@@ -1,11 +1,27 @@
-name: osmnx
+name: pyumi
 channels:
   - conda-forge
-  - defaults
 dependencies:
-  - osmnx
+  # required
+  - python>=3.6
+  - tqdm  # for progress bar
+  - osmnx  # comes with all the geos stuff
+  
+  # code checks
+  - isort>=5.2.1  # check that imports are in the right order
+  - black
+  
+  # documentation
+  - sphinx
+  
+  # testing
+  - pytest
+  - pytest-cov
+  - pytest-xdist
+  - yappi  # yappi profiler is much better at ignoring pytest
+  
+  # Other
   - pip
   - pip:
-    - tqdm
-    - path
-    - rhino3dm
+    - path  # pathlib wrapper
+    - rhino3dm  # duh

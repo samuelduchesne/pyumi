@@ -10,6 +10,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame, GeoSeries
+from osmnx.settings import default_crs
 from path import Path
 from rhino3dm import *
 from tqdm import tqdm, tqdm_notebook
@@ -103,7 +104,7 @@ class UmiProject:
     """
 
     def __init__(self, project_name="unnamed", epw=None, template_lib=None):
-        """An UmiProject pacakge containing the _file3dm file, the project
+        """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
 
         Args:
@@ -111,7 +112,6 @@ class UmiProject:
             epw (str or Path): Path of the weather file.
             template_lib (str or Path):
         """
-        from osmnx.settings import default_crs
 
         self.to_crs = default_crs
         self.gdf_world: GeoDataFrame = GeoDataFrame()
