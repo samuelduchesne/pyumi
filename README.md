@@ -1,4 +1,4 @@
-![Python package](https://github.com/samuelduchesne/pyumi/workflows/Python%20package/badge.svg?branch=master)
+![Python Build](https://github.com/samuelduchesne/pyumi/workflows/Python%20Build/badge.svg)
 
 # pyumi
 
