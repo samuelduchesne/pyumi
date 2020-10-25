@@ -37,7 +37,7 @@ dictionary of the relationship between the GIS attribute column and a specific t
 The oshkosh_demo has 3 different use_types: COMMERCIAL, RESIDENTIAL and MIXEDUSE. It is not necessary to assign each
 entries with a template. For example, if we ignore the *MIXEDUSE* template, the template map is simply:
  
-``` python
+```python
 {
     "COMMERCIAL": "B_Off_0",
     "RESIDENTIAL": "B_Res_0_WoodFrame"
@@ -47,7 +47,7 @@ entries with a template. For example, if we ignore the *MIXEDUSE* template, the 
 When opening this project in UMI, the buildings with the MIXEDUSE attribute will not have any templates assigned to
 them.
 
-``` python
+```python
 from pyumi.core import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
@@ -68,7 +68,7 @@ umi = UmiProject.from_gis(
 Let's say that the template assignment follows an additional attribute, the `Year_Built`. The template_map simply needs
 to have an additional level (nested dict):
  
- ``` python
+```python
 {
     "COMMERCIAL": {1948: "B_Off_0", 1970: "B_Off_0"},
     "RESIDENTIAL": {1948:"B_Res_0_WoodFrame", 1970: "B_Res_0_WoodFrame"}
@@ -77,7 +77,7 @@ to have an additional level (nested dict):
 
 Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
 
-``` python
+```python
 from pyumi.core import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
@@ -90,10 +90,10 @@ umi = UmiProject.from_gis(
     template_lib=template_lib,
     template_map=template_map,
     map_to_column=["Use_Type", "Year_Built"],
-)
+).save()
 ```
 
-## Download Street Network
+## Download OSM Street Networks
 
 For UmiProjects created from GIS datasets (`from_gis`) it is possible to add a street
 network on the Streets layer. This street network is automatically downloaded from Open
@@ -102,7 +102,7 @@ Street Map thanks to the excellent `osmnx` package.
 To add a street network, simply call `.add_street_graph()` on the UmiProject object and
  `.save()`:
  
- ``` python
+```python
 # with the umi project created above
 umi.add_street_graph(
     network_type="all_private",
@@ -118,6 +118,22 @@ Many options are available to fine tune the end result. For example, for the `ne
 `, users can choose from one of 'walk', 'bike', 'drive', 'drive_service', 'all', or
 'all_private'. More information at
 [osmnx](https://osmnx.readthedocs.io/en/stable/osmnx.html#osmnx.graph.graph_from_polygon).
+
+## Download OSM Points of Interest (POIs)
+
+For UmiProjects created from GIS datasets (`from_gis`) it is possible to download any
+points of interest from Open Street Map. These can be points or polygons. They can be
+added to a specific Layer. For example, trees are added to the Trees Layer using a
+dictionary of tags. For more information on which tags are available, visit [OSM Map
+Features ](https://wiki.openstreetmap.org/wiki/Map_Features)"
+  
+```python
+# with the umi project created above
+umi.add_pois(
+    tags=dict(natural=["tree_row", "tree", "wood"], trees=True),
+    on_file3dm_layer="umi::Context::Trees",
+).save()
+```
 
 ## Site Boundary
 
