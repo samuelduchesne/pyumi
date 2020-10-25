@@ -25,7 +25,7 @@ class TestCore:
     }
 
     def test_from_gis(self):
-        filename = "zip://" + Path("pyumi/tests/oshkosh_demo.zip")
+        filename = Path("pyumi/tests/oshkosh_demo.geojson")
         epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
         assert epw.exists()
@@ -40,6 +40,15 @@ class TestCore:
         # Add a Street Graph
         umi.add_street_graph(
             network_type="all_private", retain_all=True, clean_periphery=False
+        )
+        umi.add_pois(
+            tags=dict(natural=["tree_row", "tree", "wood"], trees=True),
+            on_file3dm_layer="umi::Context::Trees",
+        ).add_pois(
+            tags=dict(leisure="park", amenity="park", landuse="park"),
+            on_file3dm_layer="umi::Context::Parks",
+        ).add_pois(
+            tags=dict(landuse="commercial"), on_file3dm_layer="umi::Context"
         )
         # save UmiProject to created package.
         umi.save()
