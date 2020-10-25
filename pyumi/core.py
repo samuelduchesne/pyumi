@@ -188,6 +188,7 @@ class UmiProject:
         template_lib,
         template_map,
         map_to_column,
+        fid=None,
         to_crs=None,
         **kwargs,
     ):
@@ -205,6 +206,8 @@ class UmiProject:
                 compatible.
             height_column_name (str): The attribute name containing the
                 height values. Missing values will be ignored.
+            fid (str): Optional, the column name corresponding to the id of
+                each feature. If None, a serial id is created automatically.
             to_crs (dict): The output CRS to which the file will be
                 projected to. Units must be meters.
             **kwargs: keyword arguments passed to UmiProject constructor.
@@ -233,6 +236,7 @@ class UmiProject:
             template_map,
             map_to_column,
             to_crs,
+            fid,
             **kwargs,
         )
 
@@ -246,6 +250,7 @@ class UmiProject:
         template_map,
         map_to_column,
         to_crs=None,
+        fid=None,
         **kwargs,
     ):
         """Returns an UMI project by reading a GeoDataFrame. A height
@@ -284,18 +289,30 @@ class UmiProject:
         valid_attrs = ~gdf[height_column_name].isna()
         gdf = gdf.loc[valid_attrs, :]
 
+        # Set the identification of buildings. This "fid" is used as the
+        # Brep `Name` attribute. If a building is made of multiple
+        # polygons, then the Breps will have the same name.
+        if not fid:
+            fid = "fid"
+            if "fid" in gdf.columns:
+                pass  # This is a user-defined fid
+            else:
+                gdf["fid"] = gdf.index.values  # This serial fid
+
         # Explode to singlepart
         gdf = gdf.explode()  # The index of the input geodataframe is no
         # longer unique and is replaced with a multi-index (original index
         # with additional level indicating the multiple geometries: a new
         # zero-based index for each single part geometry per multi-part
         # geometry).
+        from osmnx.projection import project_gdf
 
-        gdf_world = gdf.copy()
-
-        if to_crs is None:
-            to_crs = {"init": "epsg:3857"}
-        gdf = gdf.to_crs(to_crs)
+        gdf_world = project_gdf(gdf, to_latlong=True)
+        try:
+            gdf = project_gdf(gdf, to_crs=to_crs)
+        except ValueError:
+            # Geometry is already projected. cannot calculate UTM zone
+            pass
 
         # Move to center; Makes the Shoeboxer happy
         centroid = gdf.cascaded_union.convex_hull.centroid
@@ -338,7 +355,7 @@ class UmiProject:
         for obj in threedm.Objects:
             obj.Attributes.LayerIndex = umi_project.umiLayers.Buildings.Index
             obj.Attributes.Name = str(
-                gdf.loc[gdf.guid == obj.Attributes.Id].index.values[0]
+                gdf.loc[gdf.guid == obj.Attributes.Id, fid].values[0]
             )
 
         bldg_attributes = {
