@@ -585,6 +585,121 @@ class UmiProject:
 
         return self
 
+    def add_pois(self, polygon=None, tags=None, on_file3dm_layer=None):
+        """Add points of interests (POIs) from OpenStreetMap.
+
+        Args:
+            polygon (Polygon or Multipolygon): geographic boundaries to
+                fetch geometries within. Units should be in degrees.
+            tags (dict): Dict of tags used for finding POIs from the selected
+                area. Results returned are the union, not intersection of each
+                individual tag. Each result matches at least one tag given.
+                The dict keys should be OSM tags, (e.g., amenity, landuse,
+                highway, etc) and the dict values should be either True to
+                retrieve all items with the given tag, or a string to get a
+                single tag-value combination, or a list of strings to get
+                multiple values for the given tag. For example, tags = {
+                ‘amenity’:True, ‘landuse’:[‘retail’,’commercial’],
+                ‘highway’:’bus_stop’} would return all amenities,
+                landuse=retail, landuse=commercial, and highway=bus_stop.
+            on_file3dm_layer (str, or Layer): specify on which file3dm layer
+                the pois will be put. Defaults to umi::Context.
+
+        Returns:
+            GeoDataFrame: gdf
+        """
+        import osmnx as ox
+
+        ox.config(log_console=True, use_cache=True)
+
+        if polygon is None:
+            polygon = self.gdf_world.unary_union.convex_hull
+
+        # Retrieve the pois from OSM
+        gdf = ox.geometries_from_polygon(polygon, tags=tags)
+        if gdf.empty:
+            lg.warning("No pois found for location. Check your tags")
+            return self
+        # Project to UmiProject crs
+        gdf = ox.project_gdf(gdf, self.to_crs)
+
+        # Move to 3dm origin
+        gdf.geometry = gdf.translate(-self.centroid.x, -self.centroid.y)
+
+        def resolve_3dmgeom(series, on_file3dm_layer):
+            geom = series.geometry  # Get the geometry
+
+            if isinstance(geom, shapely.geometry.Point):
+                # if geom is a Point
+                guid = self.file3dm.Objects.AddPoint(geom.x, geom.y, 0)
+                geom3dm, *_ = filter(
+                    lambda x: x.Attributes.Id == guid, self.file3dm.Objects
+                )
+                geom3dm.Attributes.LayerIndex = on_file3dm_layer.Index
+                geom3dm.Attributes.Name = str(series.osmid)
+            elif isinstance(
+                geom, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
+            ):
+                # if geom is a Polygon
+                polycurve = PolylineCurve(
+                    Point3dList([Point3d(x, y, 0) for x, y, *z in geom.exterior.coords])
+                )
+                # This is somewhat of a hack. The surface is created by
+                # trimming the WorldXY plane to a PolylineCurve.
+                geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(), polycurve,)
+
+                # Set the pois attributes
+                geom3dm_attr = ObjectAttributes()
+                geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+                geom3dm_attr.Name = str(series.osmid)
+                geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+
+                guid = self.file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
+            elif isinstance(geom, shapely.geometry.MultiPolygon):
+                # if geom is a MultiPolygon, iterate over
+                for polygon in geom:
+                    polycurve = PolylineCurve(
+                        Point3dList([Point3d(x, y, 0) for x, y, *z in
+                                     polygon.exterior.coords])
+                    )
+                    # This is somewhat of a hack. The surface is created by
+                    # trimming the WorldXY plane to a PolylineCurve.
+                    geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(),
+                                                      polycurve, )
+
+                    # Set the pois attributes
+                    geom3dm_attr = ObjectAttributes()
+                    geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+                    geom3dm_attr.Name = str(series.osmid)
+                    geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+
+                    guid = self.file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
+            elif isinstance(geom, shapely.geometry.linestring.LineString):
+                geom3dm = PolylineCurve(
+                    Point3dList([Point3d(x, y, 0) for x, y, *z in geom.coords])
+                )
+                geom3dm_attr = ObjectAttributes()
+                geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+                geom3dm_attr.Name = str(series.osmid)
+
+                guid = self.file3dm.Objects.AddCurve(geom3dm, geom3dm_attr)
+            else:
+                raise NotImplementedError(
+                    f"osmnx: geometry (osmid={series.osmid}) of type "
+                    f"{type(geom)} cannot be parsed as a rhino3dm object"
+                )
+            return guid
+
+        # Parse geometries
+        if not on_file3dm_layer:
+            on_file3dm_layer = self.umiLayers.Context
+        if isinstance(on_file3dm_layer, str):
+            *_, lyr_name = on_file3dm_layer.split("::")
+            on_file3dm_layer = self.umiLayers[lyr_name]
+        self._pois_ids = gdf.apply(resolve_3dmgeom, args=(on_file3dm_layer,), axis=1)
+
+        return self
+
 
 class UmiLayers:
     """Handles creation of :class:`rhino3dm.Layer` for umi projects"""
