@@ -9,10 +9,12 @@ from zipfile import ZipFile
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 from geopandas import GeoDataFrame, GeoSeries
 from osmnx.settings import default_crs
 from path import Path
 from rhino3dm import *
+from shapely.geometry.polygon import orient
 from tqdm import tqdm, tqdm_notebook
 
 # Create and register a new `tqdm` instance with `pandas`
@@ -29,7 +31,6 @@ def geom_to_curve(feature):
     Returns:
         PolylineCurve
     """
-    # Todo: add interiors and planar check
 
     return PolylineCurve(
         Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
@@ -46,50 +47,54 @@ def geom_to_brep(feature, height_column_name):
             attribute.
 
     Returns:
-
+        Brep: The Brep
     """
     # Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
+    feature.geometry = orient(feature.geometry, sign=1.0)
+    height = feature[height_column_name]
 
-    # if has interiors
-    if len(feature.geometry.interiors) > 0:
-        # Todo: Implement logic to create holes in Brep
-        # For now, forces `_noholes_brep`
-        return _withhole_brep(feature, height_column_name)
-    else:
-        # only one exterior footprint to deal with
-        return _noholed_brep(feature, height_column_name)
-
-
-def _withhole_brep(feature, height_column_name):
-    return _noholed_brep(feature, height_column_name)
-
-
-def _noholed_brep(feature, height_column_name):
-    """Assumes the Geometry has no holes (geopandas.base.GeoPandasBase.interiors)
-
-    Args:
-        feature (GeoSeries):
-        height_column_name (str): Name of the column containing the height
-            attribute.
-
-    Returns:
-        Brep: The Brep object
-    """
-    _rhinoCurve: Curve = PolylineCurve(
+    outerProfile = PolylineCurve(
         Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
     )
-    # Create the extrusion using the height attr. For some reason,
-    # value must be negative for the extrusion to go upwards.
-    _ext = Extrusion.Create(
-        _rhinoCurve, height=-feature[height_column_name], cap=True,  # negative value
-    )
-    if _ext:
-        # If Extrusion did not fail, create Brep
-        _brep = _ext.ToBrep(False)
-    else:
-        # Else return NaN and deal outside this function.
-        _brep = np.NaN
-    return _brep
+    innerProfiles = []
+    for interior in feature.geometry.interiors:
+        innerProfiles.append(
+            PolylineCurve(
+                Point3dList([Point3d(x, y, 0) for x, y, *z in interior.coords[::1]])
+            )
+        )
+
+    if outerProfile is None or height <= 1e-12:
+        return np.NaN
+
+    plane = Plane.WorldXY()
+    if not plane:
+        return np.NaN
+
+    path = Line(Point3d(0, 0, 0), Point3d(0, 0, height))
+    if not path.IsValid or path.Length <= 1e-12:
+        return np.NaN
+
+    up = plane.YAxis
+    curve = outerProfile.Duplicate()
+    curve.ChangeDimension(2)
+
+    extrusion = Extrusion()  # Initialize the Extrusion
+    extrusion.SetOuterProfile(curve, True)  # Sets the outer profile
+
+    # Sets the inner profiles, if they exist
+    for profile in innerProfiles:
+        curve = profile.Duplicate()
+        curve.ChangeDimension(2)
+        extrusion.AddInnerProfile(curve)
+
+    # Set Path and Up
+    extrusion.SetPathAndUp(path.From, path.To, up)
+
+    # Transform extrusion to Brep
+    brep = extrusion.ToBrep(False)
+
+    return brep
 
 
 class UmiProject:
@@ -545,8 +550,9 @@ class UmiProject:
         Examples:
             >>> from pyumi.core import UmiProject
             >>> UmiProject.from_gis().add_street_graph(
-            network_type="all_private",retain_all=True,
-            clean_periphery=False).save()
+            >>>     network_type="all_private",retain_all=True,
+            >>>     clean_periphery=False
+            >>> ).save()
 
             Do not forget to save!
 
