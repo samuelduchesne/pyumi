@@ -19,6 +19,7 @@ dependencies:
   - pytest-cov
   - pytest-xdist
   - yappi  # yappi profiler is much better at ignoring pytest
+  - coverage
   
   # Other
   - pip
