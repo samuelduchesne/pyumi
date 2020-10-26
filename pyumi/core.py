@@ -1,4 +1,3 @@
-import enum
 import logging as lg
 import tempfile
 import time
@@ -15,7 +14,7 @@ from osmnx.settings import default_crs
 from path import Path
 from rhino3dm import *
 from shapely.geometry.polygon import orient
-from tqdm import tqdm, tqdm_notebook
+from tqdm import tqdm
 
 # Create and register a new `tqdm` instance with `pandas`
 # (can use tqdm_gui, optional kwargs, etc.)
@@ -682,13 +681,13 @@ class UmiProject:
                 # if geom is a MultiPolygon, iterate over
                 for polygon in geom:
                     polycurve = PolylineCurve(
-                        Point3dList([Point3d(x, y, 0) for x, y, *z in
-                                     polygon.exterior.coords])
+                        Point3dList(
+                            [Point3d(x, y, 0) for x, y, *z in polygon.exterior.coords]
+                        )
                     )
                     # This is somewhat of a hack. The surface is created by
                     # trimming the WorldXY plane to a PolylineCurve.
-                    geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(),
-                                                      polycurve, )
+                    geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(), polycurve,)
 
                     # Set the pois attributes
                     geom3dm_attr = ObjectAttributes()
@@ -818,10 +817,6 @@ create_data_point = """create table data_point
     value           REAL    not null, 
     primary key (series_id, index_in_series)
 );"""
-
-
-from collections import Sequence
-from itertools import chain, count
 
 
 # Python3 Program to find depth of a dictionary
