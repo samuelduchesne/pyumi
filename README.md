@@ -48,7 +48,8 @@ When opening this project in UMI, the buildings with the MIXEDUSE attribute will
 them.
 
 ```python
-from pyumi.core import UmiProject
+
+from pyumi.umi_project import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
@@ -78,7 +79,8 @@ to have an additional level (nested dict):
 Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
 
 ```python
-from pyumi.core import UmiProject
+
+from pyumi.umi_project import UmiProject
 filename = "pyumi/tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"

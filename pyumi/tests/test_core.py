@@ -1,9 +1,10 @@
 import logging as lg
+import uuid
 
 import pytest
 from path import Path
 
-from pyumi.core import UmiProject
+from pyumi.umi_project import UmiProject
 
 
 class TestUmiProject:
@@ -24,7 +25,7 @@ class TestUmiProject:
         },
     }
 
-    def test_from_gis(self):
+    def test_create_umiproject_from_geojson_testfile(self):
         filename = Path("pyumi/tests/oshkosh_demo.geojson")
         epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
@@ -57,6 +58,11 @@ class TestUmiProject:
         # assert the name has changed
         assert umi.name == Path(projectName).stem
 
+    def test_save_to_non_existent_path(self):
+        umi = UmiProject()
+        with pytest.raises(FileNotFoundError):
+            umi.save("./temp/should_fail.umi")
+
     @pytest.mark.parametrize(
         "multi_attributes, map_to_column",
         [
@@ -80,3 +86,68 @@ class TestUmiProject:
         )
         # save UmiProject to created package.
         umi.save()
+
+
+class TestUmiLayers:
+    @pytest.fixture()
+    def umi_project(self):
+        yield UmiProject()
+
+    def test_get_attr_layer(self, umi_project):
+        assert (
+            umi_project.umiLayers["umi::Context::Streets"].FullPath
+            == "umi::Context::Streets"
+        )
+
+    def test_add_new_layer(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+        umi_project.umiLayers.add_layer("umi::Buildings::Amenities")
+
+        assert (
+            umi_project.umiLayers["umi::Context::Amenities"].Id
+            != umi_project.umiLayers["umi::Buildings::Amenities"]
+        )
+
+    def test_add_new_layer_not_twice(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+
+    def test_get_layer_by_fullpath(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+        umi_project.umiLayers.add_layer("umi::Buildings::Amenities")
+
+        umi_project.umiLayers.find_layer_from_fullpath(
+            "umi::Context::Amenities"
+        ) == umi_project.umiLayers["umi::Context::Amenities"]
+
+    def test_get_layer_by_fullpath_none(self, umi_project):
+        name = "A later::that does::not exist"
+        assert umi_project.umiLayers.find_layer_from_id(name) is None
+
+    def test_get_layer_by_name(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+
+        assert (
+            umi_project.umiLayers.find_layer_from_name("Amenities").Name == "Amenities"
+        )
+
+    def test_get_layer_by_name_none(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+        name = "A later that does not exist"
+        assert umi_project.umiLayers.find_layer_from_name(name) is None
+
+    def test_get_layer_by_name_raises_error_if_more_than_one(self, umi_project):
+        umi_project.umiLayers.add_layer("umi::Context::Amenities")
+        umi_project.umiLayers.add_layer("umi::Buildings::Amenities")
+
+        with pytest.raises(ReferenceError):
+            umi_project.umiLayers.find_layer_from_name("Amenities")
+
+    def test_get_layer_by_id(self, umi_project):
+        a_layer = umi_project.file3dm.Layers[0]
+
+        assert umi_project.umiLayers.find_layer_from_id(a_layer.Id).Id == a_layer.Id
+
+    def test_get_layer_by_id_none(self, umi_project):
+        id = uuid.uuid1()
+        assert umi_project.umiLayers.find_layer_from_id(id) is None

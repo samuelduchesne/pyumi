@@ -3,20 +3,32 @@ import logging as lg
 import tempfile
 import time
 import uuid
-from sqlite3 import connect
+from sqlite3.dbapi2 import connect
 from zipfile import ZipFile
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
-from geopandas import GeoDataFrame, GeoSeries
+from geopandas import GeoDataFrame
 from osmnx.settings import default_crs
 from path import Path
-from rhino3dm import *
+from rhino3dm import (
+    Brep,
+    Extrusion,
+    File3dm,
+    Line,
+    ObjectAttributes,
+    Plane,
+    Point3d,
+    Point3dList,
+    PolylineCurve,
+)
 from rhino3dm._rhino3dm import UnitSystem
 from shapely.geometry.polygon import orient
 from tqdm import tqdm
+
+from pyumi.umi_layers import UmiLayers
 
 
 def geom_to_curve(feature):
@@ -407,7 +419,7 @@ class UmiProject:
         )
 
         for obj in umi_project.file3dm.Objects:
-            obj.Attributes.LayerIndex = umi_project.umiLayers.Buildings.Index
+            obj.Attributes.LayerIndex = umi_project.umiLayers["umi::Buildings"].Index
             obj.Attributes.Name = str(
                 gdf.loc[gdf.guid == obj.Attributes.Id, fid].values[0]
             )
@@ -511,7 +523,9 @@ class UmiProject:
         )
         guid = self.file3dm.Objects.AddCurve(boundary)
         fileObj, *_ = filter(lambda x: x.Attributes.Id == guid, self.file3dm.Objects)
-        fileObj.Attributes.LayerIndex = self.umiLayers["Site boundary"].Index
+        fileObj.Attributes.LayerIndex = self.umiLayers[
+            "umi::Context::Site boundary"
+        ].Index
         fileObj.Attributes.Name = "Convex hull boundary"
 
         return self
@@ -549,11 +563,12 @@ class UmiProject:
                 return json.JSONEncoder.default(self, obj)
 
         with open((self.tmp / "sdl-common").mkdir_p() / "project.json", "w") as common:
-            response = self.gdf_3dm.to_json(cls=ComplexEncoder)
-            json.dump(response, common, indent=3)
+            if not self.gdf_3dm.empty:
+                response = self.gdf_3dm.to_json(cls=ComplexEncoder)
+                json.dump(response, common, indent=3)
 
         # Second, loop over files in tmp folder and copy to dst
-        outfile = dst / Path(self.name) + ".umi"
+        outfile = (dst / Path(self.name) + ".umi").expand()
         with ZipFile(outfile, "w") as zip_file:
             for file in self.tmp.files():
                 # write `file` to arcname `file.basename()`
@@ -650,7 +665,8 @@ class UmiProject:
                 Point3dList([Point3d(x, y, 0) for x, y in series.geometry.coords])
             )
             attr = ObjectAttributes()  # Initiate attributes object
-            attr.LayerIndex = self.umiLayers["Streets"].Index  # Set lyr index
+            attr.LayerIndex = self.umiLayers["umi::Context::Streets"].Index  #
+            # Set lyr index
             try:
                 name_str_or_list = series["name"]
                 if name_str_or_list and isinstance(name_str_or_list, list):
@@ -775,64 +791,12 @@ class UmiProject:
 
         # Parse geometries
         if not on_file3dm_layer:
-            on_file3dm_layer = self.umiLayers.Context
+            on_file3dm_layer = self.umiLayers["umi::Context"]
         if isinstance(on_file3dm_layer, str):
-            *_, lyr_name = on_file3dm_layer.split("::")
-            on_file3dm_layer = self.umiLayers[lyr_name]
+            on_file3dm_layer = self.umiLayers[on_file3dm_layer]
         self._pois_ids = gdf.apply(resolve_3dmgeom, args=(on_file3dm_layer,), axis=1)
 
         return self
-
-
-class UmiLayers:
-    """Handles creation of :class:`rhino3dm.Layer` for umi projects"""
-
-    _umiLayers = {
-        "umi": {
-            "Buildings": {},
-            "Context": {
-                "Site boundary": {},
-                "Streets": {},
-                "Parks": {},
-                "Boundary objects": {},
-                "Shading": {},
-                "Trees": {},
-            },
-        }
-    }
-
-    @classmethod
-    def __getitem__(cls, x):
-        return getattr(cls, x)
-
-    def __init__(self, file3dm):
-        """
-
-        Args:
-            file3dm (File3dm):
-        """
-        self._file3dm = file3dm
-
-        def iter_layers(d, _pid):
-            for k, v in d.items():
-                _layer = Layer()  # Create Layer
-                _layer.Name = k  # Set Layer Name
-                _layer.ParentLayerId = _pid  # Set parent Id
-                self._file3dm.Layers.Add(_layer)  # Add Layer
-                _layer, *_ = filter(lambda x: x.Name == k, self._file3dm.Layers)
-
-                # Sets Layer as class attr
-                setattr(UmiLayers, _layer.Name, _layer)
-
-                # Iter
-                if isinstance(v, (dict,)):
-                    if bool(v):
-                        _pid = _layer.Id
-                    iter_layers(v, _pid)
-
-        iter_layers(
-            UmiLayers._umiLayers, uuid.UUID("00000000-0000-0000-0000-000000000000")
-        )
 
 
 create_nonplottable_setting = """create table nonplottable_setting
@@ -843,14 +807,12 @@ create_nonplottable_setting = """create table nonplottable_setting
     value     TEXT not null,
     primary key (key, object_id, name)
 );"""
-
 create_object_name_assignement = """create table object_name_assignment
 (
     id   TEXT
         primary key,
     name TEXT not null
 );"""
-
 create_plottatble_setting = """create table plottable_setting
 (
     key       TEXT not null,
@@ -859,7 +821,6 @@ create_plottatble_setting = """create table plottable_setting
     value     REAL not null,
     primary key (key, object_id, name)
 );"""
-
 create_series = """create table series
 (
     id         INTEGER primary key,
@@ -870,7 +831,6 @@ create_series = """create table series
     resolution TEXT,
     unique (name, module, object_id)
 );"""
-
 create_data_point = """create table data_point
 (
     series_id       INTEGER not null references series on delete cascade,
@@ -880,7 +840,6 @@ create_data_point = """create table data_point
 );"""
 
 
-# Python3 Program to find depth of a dictionary
 def dict_depth(dic, level=1):
     if not isinstance(dic, dict) or not dic:
         return level
