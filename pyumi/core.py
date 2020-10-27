@@ -1,3 +1,4 @@
+import json
 import logging as lg
 import tempfile
 import time
@@ -13,12 +14,9 @@ from geopandas import GeoDataFrame, GeoSeries
 from osmnx.settings import default_crs
 from path import Path
 from rhino3dm import *
+from rhino3dm._rhino3dm import UnitSystem
 from shapely.geometry.polygon import orient
 from tqdm import tqdm
-
-# Create and register a new `tqdm` instance with `pandas`
-# (can use tqdm_gui, optional kwargs, etc.)
-tqdm.pandas()
 
 
 def geom_to_curve(feature):
@@ -107,6 +105,23 @@ class UmiProject:
 
     """
 
+    DEFAULT_SHOEBOX_SETTINGS = {
+        "CoreDepth": 3,
+        "Envr": 1,
+        "Fdist": 0.01,
+        "FloorToFloorHeight": 3.0,
+        "PerimeterOffset": 3.0,
+        "RoomWidth": 3.0,
+        "WindowToWallRatioE": 0.4,
+        "WindowToWallRatioN": 0.4,
+        "WindowToWallRatioRoof": 0,
+        "WindowToWallRatioS": 0.4,
+        "WindowToWallRatioW": 0.4,
+        "TemplateName": np.NaN,
+        "EnergySimulatorName": "UMI Shoeboxer (default)",
+        "FloorToFloorStrict": True,
+    }
+
     def __init__(self, project_name="unnamed", epw=None, template_lib=None):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -136,6 +151,9 @@ class UmiProject:
             con.execute(create_plottatble_setting)
             con.execute(create_series)
             con.execute(create_data_point)
+
+        # Set ModelUnitSystem to Meters
+        self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
 
         self.umi_sqlite3 = con
 
@@ -232,27 +250,60 @@ class UmiProject:
         )
         if "name" not in kwargs:
             kwargs["name"] = input_file.stem
-        return cls._from_gdf(
-            gdf,
-            height_column_name,
-            epw,
-            template_lib,
-            template_map,
-            map_to_column,
-            to_crs,
-            fid,
-            **kwargs,
+
+        # Assign template names using map. Changes elements based on the
+        # chosen column name parameter.
+        def on_frame(map_to_column, template_map):
+            """Returns the DataFrame for left_join based on number of
+            nested levels"""
+            depth = dict_depth(template_map)
+            if depth == 2:
+                return (
+                    pd.Series(template_map)
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            elif depth == 3:
+                return (
+                    pd.DataFrame(template_map)
+                    .stack()
+                    .swaplevel()
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            elif depth == 4:
+                return (
+                    pd.DataFrame(template_map)
+                    .stack()
+                    .swaplevel()
+                    .apply(pd.Series)
+                    .stack()
+                    .rename_axis(map_to_column)
+                    .rename("TemplateName")
+                    .to_frame()
+                )
+            else:
+                raise NotImplementedError("5 levels or more are not yet supported")
+
+        _index = gdf.index
+        gdf = gdf.set_index(map_to_column).join(
+            on_frame(map_to_column, template_map), on=map_to_column
+        )
+        gdf.index = _index
+
+        return cls.from_gdf(
+            gdf, height_column_name, epw, template_lib, to_crs, fid, **kwargs
         )
 
     @classmethod
-    def _from_gdf(
+    def from_gdf(
         cls,
         gdf,
         height_column_name,
         epw,
         template_lib,
-        template_map,
-        map_to_column,
         to_crs=None,
         fid=None,
         **kwargs,
@@ -324,6 +375,7 @@ class UmiProject:
         gdf.geometry = gdf.translate(-xoff, -yoff)
 
         # Create Rhino Geometries in two steps
+        tqdm.pandas(desc="Creating 3D geometries")
         gdf["rhino_geom"] = gdf.progress_apply(
             geom_to_brep, args=(height_column_name,), axis=1
         )
@@ -343,166 +395,175 @@ class UmiProject:
         # create the UmiProject object
         name = kwargs.get("name")
         umi_project = cls(project_name=name, epw=epw, template_lib=template_lib)
+        umi_project.gdf_3dm = gdf
         umi_project.centroid = centroid  # save centroid from above
         umi_project.gdf_world = gdf_world  # assign gdf_world here
         umi_project.to_crs = gdf._crs  # assign to_crs here
 
-        # Create blank 3DM file
-        threedm = umi_project.file3dm
-
-        # Set ModelUnitSystem to Meters
-        threedm.Settings.ModelUnitSystem = threedm.Settings.ModelUnitSystem.Meters
-
         # Add all Breps to Model and append UUIDs to gdf
-        gdf["guid"] = gdf["rhino_geom"].progress_apply(threedm.Objects.AddBrep)
+        tqdm.pandas(desc="Adding Breps")
+        gdf["guid"] = gdf["rhino_geom"].progress_apply(
+            umi_project.file3dm.Objects.AddBrep
+        )
 
-        for obj in threedm.Objects:
+        for obj in umi_project.file3dm.Objects:
             obj.Attributes.LayerIndex = umi_project.umiLayers.Buildings.Index
             obj.Attributes.Name = str(
                 gdf.loc[gdf.guid == obj.Attributes.Id, fid].values[0]
             )
 
-        bldg_attributes = {
-            "CoreDepth": 1,
-            "Envr": 0.01,
-            "Fdist": 3,
-            "FloorToFloorHeight": 3,
-            "PerimeterOffset": 3,
-            "RoomWidth": 0.4,
-            "WindowToWallRatioE": 0.4,
-            "WindowToWallRatioN": 0.4,
-            "WindowToWallRatioRoof": 0,
-            "WindowToWallRatioS": 0.4,
-            "WindowToWallRatioW": 0.4,
-            "TemplateName": None,
-            "EnergySimulatorName": "UMI Shoeboxer (default)",
-            "FloorToFloorStrict": 0,
-        }
-        gdf[list(bldg_attributes.keys())] = gdf.apply(
-            lambda x: pd.Series(bldg_attributes), axis=1
+        umi_project.add_default_shoebox_settings()
+
+        umi_project.update_umi_sqlite3()
+
+        umi_project.add_site_boundary()
+
+        return umi_project
+
+    def update_umi_sqlite3(self):
+        """Updates the self.umi_sqlite3 with self.gdf_3dm
+
+        Returns:
+            UmiProject: self
+        """
+        nonplot_settings = [
+            "TemplateName",
+            "EnergySimulatorName",
+            "FloorToFloorStrict",
+        ]
+
+        # First, update plottable settings
+        _df = self.gdf_3dm.loc[
+            :,
+            [
+                attr
+                for attr in self.DEFAULT_SHOEBOX_SETTINGS
+                if attr not in nonplot_settings
+            ]
+            + ["guid"],  # guid needed in sql
+        ]
+        _df = (
+            (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
+            .astype({"object_id": "str"})
+            .dropna(subset=["value"])
         )
+        _df.to_sql(
+            "plottable_setting",
+            index=True,
+            index_label="key",
+            con=self.umi_sqlite3,
+            if_exists="replace",
+            method="multi",
+        )  # write to sql, replace existing
 
-        # Assign template names using map. Changes elements based on the
-        # chosen column name parameter.
-        def on_frame(map_to_column, template_map):
-            """Returns the DataFrame for left_join based on number of nested levels"""
-            depth = dict_depth(template_map)
-            if depth == 2:
-                return (
-                    pd.Series(template_map)
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            elif depth == 3:
-                return (
-                    pd.DataFrame(template_map)
-                    .stack()
-                    .swaplevel()
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            elif depth == 4:
-                return (
-                    pd.DataFrame(template_map)
-                    .stack()
-                    .swaplevel()
-                    .apply(pd.Series)
-                    .stack()
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            else:
-                raise NotImplementedError("5 levels or more are not yet supported")
-
-        _index = gdf.index
-        gdf = (
-            gdf.set_index(map_to_column)
-            .drop(columns=["TemplateName"])
-            .join(on_frame(map_to_column, template_map), on=map_to_column)
+        # Second, update non-plottable settings
+        _df = self.gdf_3dm.loc[
+            :, [attr for attr in nonplot_settings] + ["guid"],  # guid needed in sql
+        ]
+        _df = (
+            (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
+            .astype({"object_id": "str"})
+            .dropna(subset=["value"])
         )
-        gdf.index = _index
+        _df.to_sql(
+            "nonplottable_setting",
+            index=True,
+            index_label="key",
+            con=self.umi_sqlite3,
+            if_exists="replace",
+            method="multi",
+        )  # write to sql, replace existing
+        return self
 
-        for idx, series in gdf.iterrows():
-            for attr in [
-                "CoreDepth",
-                "Envr",
-                "Fdist",
-                "FloorToFloorHeight",
-                "PerimeterOffset",
-                "RoomWidth",
-                "WindowToWallRatioE",
-                "WindowToWallRatioN",
-                "WindowToWallRatioRoof",
-                "WindowToWallRatioS",
-                "WindowToWallRatioW",
-            ]:
-                nonplottable_settings = (
-                    "unused",
-                    str(series["guid"]),
-                    attr,
-                    str(series[attr]),
-                )
-                umi_project.umi_sqlite3.execute(
-                    "INSERT INTO plottable_setting (key, object_id, name, value) "
-                    "VALUES (?, ?, ?, ?)",
-                    nonplottable_settings,
-                )
-        for idx, series in gdf.iterrows():
-            for attr in [
-                "TemplateName",
-                "EnergySimulatorName",
-                "FloorToFloorStrict",
-            ]:
-                plottatble_settings = (
-                    "unsused",
-                    str(series["guid"]),
-                    attr,
-                    str(series[attr]),
-                )
-                umi_project.umi_sqlite3.execute(
-                    "INSERT INTO nonplottable_setting (key, object_id, name, value) "
-                    "VALUES (?, ?, ?, ?)",
-                    plottatble_settings,
-                )
+    def add_default_shoebox_settings(self):
+        """Adds default values to self.gdf_3dm. If values are already
+        defined, only NaNs are replace.
 
-        # Add Site boundary PolylineCurve. Uses the exterior of the
-        # convex_hull of the unary_union of all footprints. This is a good
-        # approximation of a site boundary in most cases.
+        Returns:
+            UmiProject: self
+        """
+        bldg_attributes = self.DEFAULT_SHOEBOX_SETTINGS
+        # First add columns if they don't exist
+        for attr in bldg_attributes:
+            if attr not in self.gdf_3dm.columns:
+                self.gdf_3dm[attr] = bldg_attributes[attr]
+
+        # Then, fill NaNs with defaults, for good measure.
+        self.gdf_3dm.fillna(value=bldg_attributes, inplace=True)
+
+        return self
+
+    def add_site_boundary(self):
+        """Add Site boundary PolylineCurve. Uses the exterior of the
+        convex_hull of the unary_union of all footprints. This is a good
+        approximation of a site boundary in most cases.
+
+        Returns:
+            UmiProject: self
+        """
         boundary = PolylineCurve(
             Point3dList(
                 [
                     Point3d(x, y, 0)
-                    for x, y, *z in gdf.geometry.unary_union.convex_hull.exterior.coords
+                    for x, y, *z in self.gdf_3dm.geometry.unary_union.convex_hull.exterior.coords
                 ]
             )
         )
-        guid = umi_project.file3dm.Objects.AddCurve(boundary)
-        fileObj, *_ = filter(
-            lambda x: x.Attributes.Id == guid, umi_project.file3dm.Objects
-        )
-        fileObj.Attributes.LayerIndex = umi_project.umiLayers["Site boundary"].Index
+        guid = self.file3dm.Objects.AddCurve(boundary)
+        fileObj, *_ = filter(lambda x: x.Attributes.Id == guid, self.file3dm.Objects)
+        fileObj.Attributes.LayerIndex = self.umiLayers["Site boundary"].Index
         fileObj.Attributes.Name = "Convex hull boundary"
 
-        return umi_project
+        return self
 
     def open(self):
         """Todo: implement Open method"""
         pass
 
-    def save(self):
-        # save 3dm file to UmiProject.tmp dir
+    def save(self, filename=None):
+        """save umi file to package .umi (zipped folder)
+
+        Args:
+            filename (str or Path): Optional, the path to the destination.
+                May or may not contain the extension (.umi).
+
+        Returns:
+            UmiProject: self
+        """
+        dst = Path(".")  # set destination as current directory
+        if filename:  # a specific filename is passed
+            dst = Path(filename).dirname()  # set dir path
+            self.name = Path(filename).stem  # update project name
+
+        # First, write files to tmp destination
         self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
-        self.umi_sqlite3.commit()
-        outfile = Path(self.name) + ".umi"
+        self.umi_sqlite3.commit()  # commit db changes
+
+        class ComplexEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, uuid.UUID):
+                    return str(obj)
+                elif isinstance(obj, Brep):
+                    return None
+                # Let the base class default method raise the TypeError
+                return json.JSONEncoder.default(self, obj)
+
+        with open((self.tmp / "sdl-common").mkdir_p() / "project.json", "w") as common:
+            response = self.gdf_3dm.to_json(cls=ComplexEncoder)
+            json.dump(response, common, indent=3)
+
+        # Second, loop over files in tmp folder and copy to dst
+        outfile = dst / Path(self.name) + ".umi"
         with ZipFile(outfile, "w") as zip_file:
             for file in self.tmp.files():
                 # write `file` to arcname `file.basename()`
                 zip_file.write(file, file.basename())
+            for file in (self.tmp / "sdl-common").files():
+                zip_file.write(file, "sdl-common" / file.basename())
 
-        lg.info(f"Saved to {(Path(self.name) + '.umi').abspath()}")
+        lg.info(f"Saved to {outfile.abspath()}")
+
+        return self
 
     def add_street_graph(
         self,
@@ -628,7 +689,7 @@ class UmiProject:
                 the pois will be put. Defaults to umi::Context.
 
         Returns:
-            GeoDataFrame: gdf
+            UmiProject: self
         """
         import osmnx as ox
 
