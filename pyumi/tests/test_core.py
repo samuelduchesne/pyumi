@@ -6,7 +6,7 @@ from path import Path
 from pyumi.core import UmiProject
 
 
-class TestCore:
+class TestUmiProject:
     lg.basicConfig(filename="pyumi.log", level=lg.INFO)
 
     depth2 = {"COMMERCIAL": "B_Off_0", "RESIDENTIAL": "B_Res_0_WoodFrame"}
@@ -34,7 +34,7 @@ class TestCore:
             "Height",
             epw=epw,
             template_lib=template_lib,
-            template_map=TestCore.depth2,
+            template_map=TestUmiProject.depth2,
             map_to_column="Use_Type",
         )
         # Add a Street Graph
@@ -51,8 +51,11 @@ class TestCore:
             tags=dict(landuse="commercial"), on_file3dm_layer="umi::Context"
         )
         # save UmiProject to created package.
-        umi.save()
-        assert umi.name == "oshkosh_demo"
+        projectName = "oshkosh_demo.umi"
+        umi.save(projectName)
+
+        # assert the name has changed
+        assert umi.name == Path(projectName).stem
 
     @pytest.mark.parametrize(
         "multi_attributes, map_to_column",
