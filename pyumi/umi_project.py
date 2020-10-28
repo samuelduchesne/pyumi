@@ -720,6 +720,9 @@ class UmiProject:
             for file in (self.tmp / "sdl-common").files():
                 zip_file.write(file, "sdl-common" / file.basename())
 
+        # Todo: Save template-lib dict to file
+        # Todo: Save epw object to file
+
         lg.info(f"Saved to {outfile.abspath()}")
 
         return self
