@@ -142,3 +142,21 @@ umi.add_pois(
 A Site boundary is automatically generated for the extent of the GIS input file. It
 generates a convex hull PolylineCurve which resides on the umi::Context:Site boundary
 layer.
+
+
+## Opening, Saving and Exporting operations
+
+### Open
+To open an existing `.umi` file. simply call the `UmiProject.open()` constructor
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+```
+
+### Save
+As shown above, to save an UmiProject, simply call the `.save()` method and the 
+
+
+### Export (to_file)
+For 

@@ -2,9 +2,10 @@ import logging as lg
 import uuid
 
 import pytest
+from fiona.errors import DriverError
 from path import Path
 
-from pyumi.umi_project import UmiProject
+from pyumi.umi_project import UmiProject, ComplexEncoder
 
 
 class TestUmiProject:
@@ -58,11 +59,6 @@ class TestUmiProject:
         # assert the name has changed
         assert umi.name == Path(projectName).stem
 
-    def test_save_to_non_existent_path(self):
-        umi = UmiProject()
-        with pytest.raises(FileNotFoundError):
-            umi.save("./temp/should_fail.umi")
-
     @pytest.mark.parametrize(
         "multi_attributes, map_to_column",
         [
@@ -86,6 +82,59 @@ class TestUmiProject:
         )
         # save UmiProject to created package.
         umi.save()
+
+
+class TestUmiProjectOps:
+    @pytest.fixture()
+    def project_from_gis(self):
+        filename = Path("pyumi/tests/oshkosh_demo.geojson")
+        epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
+        assert epw.exists()
+        yield UmiProject.from_gis(
+            filename,
+            "Height",
+            epw=epw,
+            template_lib=template_lib,
+            template_map=TestUmiProject.depth2,
+            map_to_column="Use_Type",
+        )
+
+    def test_save_to_non_existent_path(self):
+        umi = UmiProject()
+        with pytest.raises(FileNotFoundError):
+            umi.save("./temp/should_fail.umi")
+
+    def test_save_to_valid_path(self, project_from_gis):
+        umi = UmiProject()
+        umi.save("empty_project.umi")
+
+        assert Path("empty_project.umi").exists()
+
+    def test_save_to_valid_path_no_extension(self, project_from_gis):
+        umi = UmiProject()
+        umi.save("empty_project_other_name_no_extension")
+
+        assert Path("empty_project_other_name_no_extension.umi").exists()
+
+    def test_export_to_file(self, project_from_gis):
+        project_from_gis.to_file("test_project.geojson")
+
+        assert Path("test_project.geojson").exists()
+
+    def test_export_to_file_shapefile(self, project_from_gis):
+        project_from_gis.to_file("test_project", driver="ESRI Shapefile")
+
+        assert Path("test_project").isdir()
+        assert Path("test_project").exists()
+
+    def test_export_to_file_invalid_dst(self, project_from_gis):
+        with pytest.raises(DriverError):
+            project_from_gis.to_file("a_folder/test_project.geojson")
+
+    def test_open(self):
+        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+        print(umi)
 
 
 class TestUmiLayers:

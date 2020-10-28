@@ -1,8 +1,10 @@
 import json
 import logging as lg
+import math
 import tempfile
 import time
 import uuid
+from json import JSONDecodeError
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile
 
@@ -10,6 +12,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from epw import epw as Epw
 from geopandas import GeoDataFrame
 from osmnx.settings import default_crs
 from path import Path
@@ -134,23 +137,27 @@ class UmiProject:
         "FloorToFloorStrict": True,
     }
 
-    def __init__(self, project_name="unnamed", epw=None, template_lib=None):
+    def __init__(
+        self, project_name="unnamed", epw=None, template_lib=None, file3dm=None
+    ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
 
         Args:
             project_name (str): The name of the project
-            epw (str or Path): Path of the weather file.
+            epw (str or Path or Epw): Path of the weather file or Epw object.
             template_lib (str or Path):
         """
 
+        self.project_settings = {}
         self.to_crs = default_crs
-        self.gdf_world: GeoDataFrame = GeoDataFrame()
+        self.gdf_world = GeoDataFrame()
+        self.gdf_world_projected = GeoDataFrame()
         self.gdf_3dm = GeoDataFrame()
         self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
 
         self.name = project_name
-        self.file3dm = File3dm()
+        self.file3dm = file3dm or File3dm()
         self.template_lib = template_lib
         self.epw = epw
 
@@ -180,6 +187,8 @@ class UmiProject:
             value:
         """
         if value:
+            if isinstance(value, Epw):
+                self._epw = value
             set_epw = Path(value).expand()
             if set_epw.exists() and set_epw.endswith(".epw"):
                 # try remove if already there
@@ -354,6 +363,17 @@ class UmiProject:
 
         # Filter rows missing attribute
         valid_attrs = ~gdf[height_column_name].isna()
+        if (~valid_attrs).any():
+            lg.warning(
+                f"Some rows have a missing {height_column_name}! The following "
+                f"{(~valid_attrs).sum()} entries "
+                f"where ignored: {gdf.loc[~valid_attrs].index}"
+            )
+        else:
+            lg.info(
+                f"{valid_attrs.sum()} reported features with a "
+                f"{height_column_name} attribute value"
+            )
         gdf = gdf.loc[valid_attrs, :]
 
         # Set the identification of buildings. This "fid" is used as the
@@ -380,10 +400,12 @@ class UmiProject:
         except ValueError:
             # Geometry is already projected. cannot calculate UTM zone
             pass
+        finally:
+            gdf_world_projected = gdf.copy()  # make a copy for reference
 
         # Move to center; Makes the Shoeboxer happy
-        centroid = gdf.cascaded_union.convex_hull.centroid
-        xoff, yoff = centroid.x, centroid.y
+        world_centroid = gdf_world_projected.unary_union.convex_hull.centroid
+        xoff, yoff = world_centroid.x, world_centroid.y
         gdf.geometry = gdf.translate(-xoff, -yoff)
 
         # Create Rhino Geometries in two steps
@@ -408,8 +430,8 @@ class UmiProject:
         name = kwargs.get("name")
         umi_project = cls(project_name=name, epw=epw, template_lib=template_lib)
         umi_project.gdf_3dm = gdf
-        umi_project.centroid = centroid  # save centroid from above
         umi_project.gdf_world = gdf_world  # assign gdf_world here
+        umi_project.gdf_world_projected = gdf_world_projected
         umi_project.to_crs = gdf._crs  # assign to_crs here
 
         # Add all Breps to Model and append UUIDs to gdf
@@ -417,6 +439,7 @@ class UmiProject:
         gdf["guid"] = gdf["rhino_geom"].progress_apply(
             umi_project.file3dm.Objects.AddBrep
         )
+        gdf.drop(columns=["rhino_geom"], inplace=True)  # don't carry around
 
         for obj in umi_project.file3dm.Objects:
             obj.Attributes.LayerIndex = umi_project.umiLayers["umi::Buildings"].Index
@@ -470,7 +493,8 @@ class UmiProject:
 
         # Second, update non-plottable settings
         _df = self.gdf_3dm.loc[
-            :, [attr for attr in nonplot_settings] + ["guid"],  # guid needed in sql
+            :,
+            [attr for attr in nonplot_settings] + ["guid"],  # guid needed in sql
         ]
         _df = (
             (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
@@ -530,12 +554,137 @@ class UmiProject:
 
         return self
 
-    def open(self):
-        """Todo: implement Open method"""
-        pass
+    @classmethod
+    def open(cls, filename):
+        """"""
+        filename = Path(filename)
+        project_name = filename.stem
+        # with unziped file load in the files
+        with ZipFile(filename) as umizip:
+            with tempfile.TemporaryDirectory() as tempdir:
+                # extract and load file3dm
+
+                umizip.extract(project_name + ".3dm", tempdir)
+                file3dm = File3dm.Read(Path(tempdir) / project_name + ".3dm")
+
+                epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
+                umizip.extract(epw_file, tempdir)
+                epw = Epw()
+                epw.read(Path(tempdir) / epw_file)
+
+                tmp_lib, *_ = (
+                    file
+                    for file in umizip.namelist()
+                    if ".json" in file and "sdl-common" not in file
+                )
+                with umizip.open(tmp_lib) as f:
+                    template_lib = json.load(f)
+                umizip.extract(epw_file, tempdir)
+                epw = Epw()
+                epw.read(Path(tempdir) / epw_file)
+
+                sdl_common = {}  # prepare sdl-common dict
+
+                # loop over 'sdl-common' config files (.json)
+                for file in [
+                    file for file in umizip.namelist() if "sdl-common" in file
+                ]:
+                    if file == "sdl-common/project.json":
+                        # extract and load GeoDataFrame
+
+                        lat, lon = epw.headers["LOCATION"][5:7]
+                        utm_zone = int(math.floor((float(lon) + 180) / 6.0) + 1)
+                        utm_crs = (
+                            f"+proj=utm +zone={utm_zone} +ellps=WGS84 "
+                            f"+datum=WGS84 +units=m +no_defs"
+                        )
+                        umizip.extract("sdl-common/project.json", tempdir)
+                        gdf_3dm = GeoDataFrame.from_file(
+                            Path(tempdir) / "sdl-common/project.json", crs=utm_crs
+                        )
+                    else:
+                        with umizip.open(file) as f:
+                            try:
+                                sdl_common[Path(file).stem] = json.load(f)
+                            except JSONDecodeError:
+                                sdl_common[Path(file).stem] = {}
+
+        umi_project = cls.from_gdf(
+            gdf_3dm,
+            "Height",
+            project_name=project_name,
+            epw=epw,
+            fid="id",
+            template_lib=template_lib,
+            file3dm=file3dm,
+        )
+        return umi_project
+
+    def to_file(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
+        """Write the ``UmiProject`` to another file format. The
+        :attr:`UmiProject.gdf_3dm` is first translated back to the
+        :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
+        to the :attr:`UmiProject.world_gdf._crs`.
+
+        By default, a GeoJSON is written, but any OGR data source
+        supported by Fiona can be written. A dictionary of supported OGR
+        providers is available via:
+
+        >>> import fiona
+        >>> fiona.supported_drivers
+
+        Args:
+            filename (str): File path or file handle to write to.
+            driver (str): The OGR format driver used to write the vector
+                file. Deaults to "GeoJSON".
+            schema (dict): If specified, the schema dictionary is passed to
+                Fiona to better control how the file is written.
+            index (bool): If True, write index into one or more columns
+                (for MultiIndex). Default None writes the index into one or
+                more columns only if the index is named, is a MultiIndex,
+                or has a non-integer data type. If False, no index is written.
+
+        Notes:
+            The extra keyword arguments ``**kwargs`` are passed to
+            :meth:`fiona.open`and can be used to write to multi-layer data,
+            store data within archives (zip files), etc.
+
+            The format drivers will attempt to detect the encoding of your
+            data, but may fail. In this case, the proper encoding can be
+            specified explicitly by using the encoding keyword parameter,
+            e.g. ``encoding='utf-8'``.
+
+        Examples:
+            >>> from pyumi.umi_project import UmiProject
+            >>> UmiProject().to_file("project name", driver="ESRI Shapefile")
+            Or
+            >>> from pyumi.umi_project import UmiProject
+            >>> UmiProject().to_file("project name", driver="GeoJSON")
+
+        Returns:
+            None
+        """
+        world_crs = self.gdf_world._crs  # get utm crs
+        exp_gdf = self.gdf_3dm.copy()  # make a copy
+
+        dtype_map = {"guid": str}
+        exp_gdf.loc[:, list(dtype_map)] = exp_gdf.astype(dtype_map)
+
+        xdiff, ydiff = self.gdf_world_projected.unary_union.centroid.coords[0]
+
+        exp_gdf.geometry = exp_gdf.translate(xdiff, ydiff)
+        # Project the gdf to the world_crs
+        from osmnx import project_gdf
+
+        exp_gdf = project_gdf(exp_gdf, world_crs)
+
+        # Convert to file. Uses fiona
+        exp_gdf.to_file(
+            filename=filename, driver=driver, schema=schema, index=index, **kwargs
+        )
 
     def save(self, filename=None):
-        """save umi file to package .umi (zipped folder)
+        """Saves the UmiProject to a packaged .umi file (zipped folder)
 
         Args:
             filename (str or Path): Optional, the path to the destination.
@@ -553,19 +702,14 @@ class UmiProject:
         self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
         self.umi_sqlite3.commit()  # commit db changes
 
-        class ComplexEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if isinstance(obj, uuid.UUID):
-                    return str(obj)
-                elif isinstance(obj, Brep):
-                    return None
-                # Let the base class default method raise the TypeError
-                return json.JSONEncoder.default(self, obj)
-
         with open((self.tmp / "sdl-common").mkdir_p() / "project.json", "w") as common:
             if not self.gdf_3dm.empty:
-                response = self.gdf_3dm.to_json(cls=ComplexEncoder)
+                _json = self.gdf_3dm.to_json(cls=ComplexEncoder)
+                response = json.loads(_json)
                 json.dump(response, common, indent=3)
+
+                for project_setting in self.project_settings:
+                    json.dump(response, common, indent=3)
 
         # Second, loop over files in tmp folder and copy to dst
         outfile = (dst / Path(self.name) + ".umi").expand()
@@ -623,7 +767,7 @@ class UmiProject:
                 fully bi-directional.
 
         Examples:
-            >>> from pyumi.core import UmiProject
+            >>> from pyumi.umi_project import UmiProject
             >>> UmiProject.from_gis().add_street_graph(
             >>>     network_type="all_private",retain_all=True,
             >>>     clean_periphery=False
@@ -657,7 +801,10 @@ class UmiProject:
         )
         self.street_graph = ox.project_graph(self.street_graph, self.to_crs)
         gdf_edges = ox.graph_to_gdfs(self.street_graph, nodes=False)
-        gdf_edges.geometry = gdf_edges.translate(-self.centroid.x, -self.centroid.y)
+        gdf_edges.geometry = gdf_edges.translate(
+            -self.gdf_world.unary_union.centroid.x,
+            -self.gdf_world.unary_union.centroid.y,
+        )
 
         def to_polylinecurve(series):
             """Create geometry and add to 2dm file"""
@@ -723,7 +870,10 @@ class UmiProject:
         gdf = ox.project_gdf(gdf, self.to_crs)
 
         # Move to 3dm origin
-        gdf.geometry = gdf.translate(-self.centroid.x, -self.centroid.y)
+        gdf.geometry = gdf.translate(
+            -self.gdf_world_projected.unary_union.centroid.x,
+            -self.gdf_world_projected.unary_union.centroid.y,
+        )
 
         def resolve_3dmgeom(series, on_file3dm_layer):
             geom = series.geometry  # Get the geometry
@@ -745,7 +895,10 @@ class UmiProject:
                 )
                 # This is somewhat of a hack. The surface is created by
                 # trimming the WorldXY plane to a PolylineCurve.
-                geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(), polycurve,)
+                geom3dm = Brep.CreateTrimmedPlane(
+                    Plane.WorldXY(),
+                    polycurve,
+                )
 
                 # Set the pois attributes
                 geom3dm_attr = ObjectAttributes()
@@ -764,7 +917,10 @@ class UmiProject:
                     )
                     # This is somewhat of a hack. The surface is created by
                     # trimming the WorldXY plane to a PolylineCurve.
-                    geom3dm = Brep.CreateTrimmedPlane(Plane.WorldXY(), polycurve,)
+                    geom3dm = Brep.CreateTrimmedPlane(
+                        Plane.WorldXY(),
+                        polycurve,
+                    )
 
                     # Set the pois attributes
                     geom3dm_attr = ObjectAttributes()
@@ -844,3 +1000,13 @@ def dict_depth(dic, level=1):
     if not isinstance(dic, dict) or not dic:
         return level
     return max(dict_depth(dic[key], level + 1) for key in dic)
+
+
+class ComplexEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        elif isinstance(obj, Brep):
+            return None
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)

@@ -60,7 +60,7 @@ class UmiLayers:
         if self.find_layer_from_fullpath(full_path):
             return self.find_layer_from_fullpath(full_path)
         else:
-            # Cummulative List Split
+            # Cumulative List Split
             # Using accumulate() + join()
             temp = full_path.split(delimiter)
             res = list(accumulate(temp, lambda x, y: delimiter.join([x, y])))
