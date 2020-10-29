@@ -6,22 +6,19 @@
 
 # Features
 
-- Create a large scale UMI project from a GIS dataset
+- Create a large scale UMI project from a GIS dataset.
 - Quickly assign templates based on attribute relationship.
-- Automatically download street networks from Open Street Map for the walkability module.
-- Automatically create a site boundary based on the convex hull of the GIS dataset
- extent.
+- Download street networks from Open Street Map and use with the walkability module.
+- Download any Point of Interest (POI) from Open Street Map.
+- Automatically create a site boundary based on the convex hull of the GIS dataset extent.
+- 
  
-## ShapefileToUmi
+## GIS to UMI Workflow
 
-pyumi was created first to accelerate the creation of UMI projects from GIS datasets.
+pyumi was created first to accelerate the creation of UMI projects from large GIS datasets.
 pyumi builds on top of GeoPandas and rhino3dm to handle GIS geometry processing and
-handling. Convert any GIS dataset (shapefile, geojson, etc.) to a working UMI project.
-
-## Work in progress
-
-- Holes in buildings, such as courtyards, are currently not supported. If you know how to
-handle holes in extrusions in the rhino3dm.py interface of OpenNURBS, please let me know!
+handling. This enbales complex GIS datasets (shapefile, geojson, etc.) to be converted to an UMI project.
+Template assignemnts can be done using a name mapping dictionnary or using an attribute column name.
 
 # Tutorial
 
@@ -29,10 +26,13 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 - invalid geometries will be ignored
 - features (rows) that have a missing `height` attribute will be ignored.
 - features that are made of a MultiPolygon will be broken down into distinct Breps and will share the same attributes.
+- features that don't resolve with any template assignment will be put to the ``umi::Context::Shading`` layer.
 
-We can simply create the umi project by calling the `from_gis()` constructor. For this particular example, the height
+## From a GIS dataset
+
+We can simply create the umi project by calling the `from_gis()` constructor. For this particular example (oshkosh_demo), the height
 attribute column in the GIS file is named `Height`. We also need to pass a `template_map` which is simply a 
-dictionary of the relationship between the GIS attribute column and a specific template name in the template library.
+dictionary of the relationship between the GIS attribute column and a specific template name in the template library (here the `BostonTemplateLibrary.json`).
 
 The oshkosh_demo has 3 different use_types: COMMERCIAL, RESIDENTIAL and MIXEDUSE. It is not necessary to assign each
 entries with a template. For example, if we ignore the *MIXEDUSE* template, the template map is simply:
@@ -45,14 +45,15 @@ entries with a template. For example, if we ignore the *MIXEDUSE* template, the 
 ```
 
 When opening this project in UMI, the buildings with the MIXEDUSE attribute will not have any templates assigned to
-them.
+them and be moved to the ``umi::Context::Shading``.
+
+As for Umi projects created in Rhino, the weather file and the template library must defined. Templates can be downloaded from [ubem.io](http://ubem.io) and weather files can be downloaded from [Energy Plus](https://energyplus.net/weather).
 
 ```python
-
 from pyumi.umi_project import UmiProject
-filename = "pyumi/tests/oshkosh_demo.zip"
-epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
-template_lib = "pyumi/tests/BostonTemplateLibrary.json"
+filename = "tests/oshkosh_demo.zip"
+epw = "tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
+template_lib = "tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
 umi = UmiProject.from_gis(
     "zip://" + filename,
@@ -79,11 +80,10 @@ to have an additional level (nested dict):
 Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
 
 ```python
-
 from pyumi.umi_project import UmiProject
-filename = "pyumi/tests/oshkosh_demo.zip"
-epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
-template_lib = "pyumi/tests/BostonTemplateLibrary.json"
+filename = "tests/oshkosh_demo.zip"
+epw = "tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
+template_lib = "tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
 umi = UmiProject.from_gis(
     "zip://" + filename,
@@ -142,3 +142,44 @@ umi.add_pois(
 A Site boundary is automatically generated for the extent of the GIS input file. It
 generates a convex hull PolylineCurve which resides on the umi::Context:Site boundary
 layer.
+
+
+## Opening, Saving and Exporting operations
+
+### Open
+To open an existing `.umi` file. simply call the `UmiProject.open()` constructor
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("tests/oshkosh_demo.umi")
+```
+
+### Save
+As shown above, to save an UmiProject, simply call the `.save()` method.
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("tests/oshkosh_demo.umi")
+umi.save("oshkosh_demo_copy.umi")
+```
+
+### Export (to_file) 
+For compatibility with other workflows, it is possible to export to
+multiple file formats.
+
+For now, any GIS file format supported by fiona is available. To see a list:
+
+```python
+import fiona; fiona.supported_drivers
+```
+
+For example, to export to GeoJSON:
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("tests/oshkosh_demo.umi")
+umi.export("project_name.json", driver="GeoJSON")
+```
+
+In the future, other drivers will become available such as 
+[URBANopt™](https://docs.urbanopt.net/).
