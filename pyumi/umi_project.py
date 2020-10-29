@@ -1013,3 +1013,34 @@ class ComplexEncoder(json.JSONEncoder):
             return None
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
+
+
+class Epw(epw):
+    def __init__(self, path):
+        super(Epw, self).__init__()
+        self.read(path)
+
+        self.name = path
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = Path(value).basename
+
+    def as_str(self):
+        """Returns Epw as a string"""
+        csvfile = StringIO()
+        csvwriter = csv.writer(
+            csvfile, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
+        )
+        for k, v in self.headers.items():
+            csvwriter.writerow([k] + v)
+        for row in self.dataframe.itertuples(index=False):
+            csvwriter.writerow(i for i in row)
+        csvfile.seek(0)
+        epw_str = csvfile.read()
+        csvfile.close()
+        return epw_str
