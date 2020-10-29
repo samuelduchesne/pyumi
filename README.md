@@ -11,7 +11,6 @@
 - Download street networks from Open Street Map and use with the walkability module.
 - Download any Point of Interest (POI) from Open Street Map.
 - Automatically create a site boundary based on the convex hull of the GIS dataset extent.
-- 
  
 ## GIS to UMI Workflow
 
@@ -27,6 +26,17 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 - features (rows) that have a missing `height` attribute will be ignored.
 - features that are made of a MultiPolygon will be broken down into distinct Breps and will share the same attributes.
 - features that don't resolve with any template assignment will be put to the ``umi::Context::Shading`` layer.
+
+## Installation
+
+pyumi uses many GIS libraries that are quite finicky. It is strongly recommended that pyumi be installed on a new conda environment:
+
+```python
+git clone https://github.com/samuelduchesne/pyumi.git
+cd pyumi
+conda env update -n pyumi --file environment.yml
+conda activate pyumi
+```
 
 ## From a GIS dataset
 
