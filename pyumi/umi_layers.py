@@ -6,16 +6,16 @@ from rhino3dm import *
 class UmiLayers:
     """Handles creation of :class:`rhino3dm.Layer` for umi projects"""
 
-    _base_layers = [
-        "umi::Buildings",
-        "umi::Context",
-        "umi::Context::Site boundary",
-        "umi::Context::Streets",
-        "umi::Context::Parks",
-        "umi::Context::Boundary objects",
-        "umi::Context::Shading",
-        "umi::Context::Trees",
-    ]
+    _base_layers = {
+        "umi::Buildings": {"Color": (0, 0, 0, 255)},
+        "umi::Context": {"Color": (0, 0, 0, 255)},
+        "umi::Context::Site boundary": {"Color": (255, 0, 255, 255)},
+        "umi::Context::Streets": {"Color": (0, 0, 0, 255)},
+        "umi::Context::Parks": {"Color": (0, 127, 0, 255)},
+        "umi::Context::Boundary objects": {"Color": (0, 0, 0, 255)},
+        "umi::Context::Shading": {"Color": (191, 63, 63, 255)},
+        "umi::Context::Trees": {"Color": (63, 191, 127, 255)},
+    }
 
     _file3dm = None
 
@@ -31,8 +31,19 @@ class UmiLayers:
         """
         self._file3dm = file3dm
 
-        for layer in UmiLayers._base_layers:
-            self.add_layer(layer)
+        # Loop over layers in the file3dm and add them as classattributes
+        # with their full name
+        for layer in file3dm.Layers:
+            setattr(UmiLayers, layer.FullPath, layer)
+
+        # Loop over predefined umi layers, add them (if they don't exist) and
+        # set their color; default color is black (0,0,0,255) if not defined.
+        for layer_name in UmiLayers._base_layers:
+            layer = self.add_layer(layer_name)
+            # Try Sets Layers as class attr
+            layer.Color = UmiLayers._base_layers.get(layer.FullPath, (0, 0, 0, 255))[
+                "Color"
+            ]
 
     def add_layer(self, full_path, delimiter="::"):
         """Adds a layer to the file3dm. Sub-layers can be specified using a
@@ -54,8 +65,9 @@ class UmiLayers:
             <rhino3dm._rhino3dm.Layer object at 0x000001DB953052B0>
 
         Returns:
-              list: A list containing the guid of the created layer, or all
-                layers if parent layers were created
+              Layer: The Rhino Layer object. If Parent layers had to be
+              created, those are not returned. Only the lowest level layer
+              is returned.
         """
         if self.find_layer_from_fullpath(full_path):
             return self.find_layer_from_fullpath(full_path)
@@ -81,6 +93,7 @@ class UmiLayers:
                         parent_layer = _layer
                     # Sets Layer as class attr
                     setattr(UmiLayers, _layer.FullPath, _layer)
+            return _layer
 
     def find_layer_from_id(self, id):
         try:
