@@ -1,11 +1,12 @@
 import logging as lg
 import uuid
+from unittest.mock import patch
 
 import pytest
 from fiona.errors import DriverError
 from path import Path
 
-from pyumi.umi_project import UmiProject, ComplexEncoder
+from pyumi.umi_project import UmiProject
 
 
 class TestUmiProject:
@@ -133,8 +134,9 @@ class TestUmiProjectOps:
             project_from_gis.to_file("a_folder/test_project.geojson")
 
     def test_open(self):
-        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
-        print(umi)
+        with patch("builtins.input", return_value="0, 0"):
+            umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+            print(umi)
 
 
 class TestUmiLayers:
