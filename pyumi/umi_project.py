@@ -159,6 +159,7 @@ class UmiProject:
         to_crs=None,
         umi_sqlite=None,
         fid="fid",
+        sdl_common=None,
     ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -171,7 +172,7 @@ class UmiProject:
         """
 
         self.fid = fid  # Column use as unique id gdf3dm
-        self.sdl_common = {}
+        self.sdl_common = sdl_common if sdl_common is not None else {}
         self.to_crs = to_crs
         self.gdf_world = gdf_world if gdf_world is not None else GeoDataFrame()
         self.gdf_world_projected = (
@@ -692,9 +693,11 @@ class UmiProject:
         with ZipFile(filename) as umizip:
             with tempfile.TemporaryDirectory() as tempdir:
                 # extract and load file3dm
-
-                umizip.extract(project_name + ".3dm", tempdir)
-                file3dm = File3dm.Read(Path(tempdir) / project_name + ".3dm")
+                file3dm, *_ = (
+                    file for file in umizip.namelist() if file.endswith(".3dm")
+                )
+                umizip.extract(file3dm, tempdir)
+                file3dm = File3dm.Read(Path(tempdir) / file3dm)
 
                 epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
                 umizip.extract(epw_file, tempdir)
@@ -732,7 +735,7 @@ class UmiProject:
                         with umizip.open(file) as f:
                             try:
                                 sdl_common[Path(file).stem] = json.load(f)
-                            except JSONDecodeError:
+                            except JSONDecodeError:  # todo: deal with xml
                                 sdl_common[Path(file).stem] = {}
 
         # Before translating the geometries, resolve the
@@ -774,7 +777,7 @@ class UmiProject:
 
         umi_layers = UmiLayers(file3dm)
 
-        umi_project = cls(
+        return cls(
             project_name,
             epw=epw,
             template_lib=template_lib,
@@ -785,9 +788,8 @@ class UmiProject:
             umi_layers=umi_layers,
             to_crs=CRS.from_user_input(utm_crs),
             fid="id",
+            sdl_common=sdl_common,
         )
-
-        return umi_project
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
         """Write the ``UmiProject`` to another file format. The
