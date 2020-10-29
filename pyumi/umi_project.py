@@ -1,21 +1,25 @@
+import csv
 import json
-import logging as lg
+import logging
 import math
 import tempfile
 import time
 import uuid
+from io import StringIO
 from json import JSONDecodeError
 from sqlite3.dbapi2 import connect
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
-from epw import epw as Epw
-from geopandas import GeoDataFrame
-from osmnx.settings import default_crs
+from epw import epw
+from geopandas import GeoDataFrame, GeoSeries
+from networkx import is_empty
+from osmnx import geometries_from_polygon, project_gdf, project_graph
 from path import Path
+from pyproj import CRS
 from rhino3dm import (
     Brep,
     Extrusion,
@@ -32,6 +36,9 @@ from shapely.geometry.polygon import orient
 from tqdm import tqdm
 
 from pyumi.umi_layers import UmiLayers
+
+# create logger
+log = logging.getLogger("pyumi.UmiProject")
 
 
 def geom_to_curve(feature):
@@ -138,22 +145,35 @@ class UmiProject:
     }
 
     def __init__(
-        self, project_name="unnamed", epw=None, template_lib=None, file3dm=None
+        self,
+        project_name="unnamed",
+        epw=None,
+        template_lib=None,
+        file3dm=None,
+        gdf_world=None,
+        gdf_world_projected=None,
+        gdf_3dm=None,
+        umi_layers=None,
+        to_crs=None,
+        umi_sqlite=None,
     ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
 
         Args:
+            to_crs (CRS): The coordinate projection system.
             project_name (str): The name of the project
             epw (str or Path or Epw): Path of the weather file or Epw object.
             template_lib (str or Path):
         """
 
-        self.project_settings = {}
-        self.to_crs = default_crs
-        self.gdf_world = GeoDataFrame()
-        self.gdf_world_projected = GeoDataFrame()
-        self.gdf_3dm = GeoDataFrame()
+        self.sdl_common = {}
+        self.to_crs = to_crs
+        self.gdf_world = gdf_world if gdf_world is not None else GeoDataFrame()
+        self.gdf_world_projected = (
+            gdf_world_projected if gdf_world_projected is not None else GeoDataFrame()
+        )
+        self.gdf_3dm = gdf_3dm if gdf_3dm is not None else GeoDataFrame()
         self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
 
         self.name = project_name
@@ -162,14 +182,22 @@ class UmiProject:
         self.epw = epw
 
         # Initiate Layers in 3dm file
-        self.umiLayers = UmiLayers(self.file3dm)
+        self.umiLayers = umi_layers or UmiLayers(self.file3dm)
 
-        with connect(self.tmp / "umi.sqlite3") as con:
-            con.execute(create_nonplottable_setting)
-            con.execute(create_object_name_assignement)
-            con.execute(create_plottatble_setting)
-            con.execute(create_series)
-            con.execute(create_data_point)
+        if umi_sqlite is None:
+            with connect(self.tmp / "umi.sqlite3") as con:
+                con.execute(create_nonplottable_setting)
+                con.execute(create_object_name_assignement)
+                con.execute(create_plottatble_setting)
+                con.execute(create_series)
+                con.execute(create_data_point)
+        else:
+            with connect(Path(umi_sqlite).copy(self.tmp)) as con:
+                con.execute(create_nonplottable_setting)
+                con.execute(create_object_name_assignement)
+                con.execute(create_plottatble_setting)
+                con.execute(create_series)
+                con.execute(create_data_point)
 
         # Set ModelUnitSystem to Meters
         self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
@@ -178,45 +206,68 @@ class UmiProject:
 
     @property
     def epw(self):
+        """The weather file as an Epw object"""
         return self._epw
 
     @epw.setter
     def epw(self, value):
-        """
-        Args:
-            value:
-        """
+        """Sets the weather file. If a string is passed, it is loaded as na
+        Epw object"""
         if value:
             if isinstance(value, Epw):
                 self._epw = value
-            set_epw = Path(value).expand()
-            if set_epw.exists() and set_epw.endswith(".epw"):
-                # try remove if already there
-                (self.tmp / set_epw.basename()).remove_p()
-                # copy to self.tmp
-                tmp_epw = set_epw.copy(self.tmp)
-                # set attr value
-                self._epw = tmp_epw
+            elif Path(value).exists() and Path(value).endswith(".epw"):
+                self._epw = Epw(value)
+            else:
+                raise ValueError(f"Cannot set epw file {value}")
         else:
             self._epw = None
 
     @property
     def template_lib(self):
+        """The template library"""
         return self._template_lib
 
     @template_lib.setter
     def template_lib(self, value):
-        if value:
-            set_lib = Path(value).expand()
-            if set_lib.exists() and set_lib.endswith(".json"):
-                # try remove if already there
-                (self.tmp / set_lib.basename()).remove_p()
-                # copy to self.tmp
-                tmp_lib = set_lib.copy(self.tmp)
-                # set attr value
-                self._template_lib = tmp_lib
+        """Sets the template library. If a file is passed, it is loaded"""
+        if isinstance(value, dict):
+            self._template_lib = value
+        elif isinstance(value, (str or Path)):
+            with open(value, "r") as f:
+                self._template_lib = json.load(f)
         else:
             self._template_lib = None
+
+    @property
+    def to_crs(self):
+        """The cartesian coordinate system used in the file3dm"""
+        return self._to_crs
+
+    @to_crs.setter
+    def to_crs(self, value):
+        """Sets the CRS by checking first if it is a cartesian coordinate
+        system"""
+        if isinstance(value, CRS):
+            _crs = value
+        elif isinstance(value, dict):
+            _crs = CRS.from_user_input(**value)
+        elif isinstance(value, str):
+            _crs = CRS.from_string(value)
+        elif value is None:
+            _crs = None
+        else:
+            raise ValueError(
+                f"Could not parse CRS of type {type(value)}. "
+                f"Provide the crs as a string or as a dictionary"
+            )
+        if _crs:
+            if _crs.coordinate_system.name != "cartesian":
+                raise ValueError(
+                    f"project can only be projected to a cartesian "
+                    f"system unlike the specified CRS: {_crs}"
+                )
+        self._to_crs = _crs
 
     def __del__(self):
         self.umi_sqlite3.close()
@@ -262,15 +313,15 @@ class UmiProject:
 
         # First, load the file to a GeoDataFrame
         start_time = time.time()
-        lg.info("reading input file...")
+        log.info("reading input file...")
         gdf = gpd.read_file(input_file)
-        lg.info(
+        log.info(
             f"Read {gdf.memory_usage(index=True).sum() / 1000:,.1f}KB from"
             f" {input_file} in"
             f" {time.time()-start_time:,.2f} seconds"
         )
-        if "name" not in kwargs:
-            kwargs["name"] = input_file.stem
+        if "project_name" not in kwargs:
+            kwargs["project_name"] = input_file.stem
 
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
@@ -314,15 +365,18 @@ class UmiProject:
         )
         gdf.index = _index
 
-        return cls.from_gdf(
-            gdf, height_column_name, epw, template_lib, to_crs, fid, **kwargs
+        umi_project = cls.from_gdf(
+            gdf, height_column_name, "TMP", epw, template_lib, to_crs, fid, **kwargs
         )
+        umi_project.add_site_boundary()
+        return umi_project
 
     @classmethod
     def from_gdf(
         cls,
         gdf,
         height_column_name,
+        template_column_name,
         epw,
         template_lib,
         to_crs=None,
@@ -336,14 +390,17 @@ class UmiProject:
         is moved to the origin coordinates.
 
         Args:
+            template_column_name (str): The column in the GeoDataFrame that
+                contains the names of the templates.
             input_file (str or Path): Path to the GIS file. A zipped file
                 can be passed by appending the path with "zip:/". Any file
                 type read by :meth:`geopandas.io.file._read_file` is
                 compatible.
             height_column_name (str): The attribute name containing the
                 height values. Missing values will be ignored.
-            to_crs (dict): The output CRS to which the file will be projected
-                to. Units must be meters.
+            to_crs (dict or CRS, optional): The CRS the input_file is
+                projected to for a planer representation in the file3dm.
+                Units of the crs must be meters.
             **kwargs: keyword arguments passed to UmiProject constructor.
 
         Returns:
@@ -352,25 +409,25 @@ class UmiProject:
         # Filter rows; Display invalid geometries in log
         valid_geoms = gdf.geometry.is_valid
         if (~valid_geoms).any():
-            lg.warning(
+            log.warning(
                 f"Invalid geometries found! The following "
                 f"{(~valid_geoms).sum()} entries "
                 f"where ignored: {gdf.loc[~valid_geoms].index}"
             )
         else:
-            lg.info("No invalid geometries reported")
+            log.info("No invalid geometries reported")
         gdf = gdf.loc[valid_geoms, :]  # Only valid geoms
 
         # Filter rows missing attribute
         valid_attrs = ~gdf[height_column_name].isna()
         if (~valid_attrs).any():
-            lg.warning(
+            log.warning(
                 f"Some rows have a missing {height_column_name}! The following "
                 f"{(~valid_attrs).sum()} entries "
                 f"where ignored: {gdf.loc[~valid_attrs].index}"
             )
         else:
-            lg.info(
+            log.info(
                 f"{valid_attrs.sum()} reported features with a "
                 f"{height_column_name} attribute value"
             )
@@ -385,7 +442,6 @@ class UmiProject:
                 pass  # This is a user-defined fid
             else:
                 gdf["fid"] = gdf.index.values  # This serial fid
-
         # Explode to singlepart
         gdf = gdf.explode()  # The index of the input geodataframe is no
         # longer unique and is replaced with a multi-index (original index
@@ -410,48 +466,92 @@ class UmiProject:
 
         # Create Rhino Geometries in two steps
         tqdm.pandas(desc="Creating 3D geometries")
+        file3dm = kwargs.get("file3dm", None)
+
+        def try_make_geom(series, height_column_name):
+            if file3dm:
+                obj = file3dm.Objects.FindId(series[fid])
+                if obj:
+                    return obj.Geometry
+            else:
+                return geom_to_brep(series, height_column_name)
+
         gdf["rhino_geom"] = gdf.progress_apply(
-            geom_to_brep, args=(height_column_name,), axis=1
+            try_make_geom, args=(height_column_name,), axis=1
         )
 
         # Filter out errored rhino geometries
+        start_time = time.time()
         errored_brep = gdf["rhino_geom"].isna()
         if errored_brep.any():
-            lg.warning(
+            log.warning(
                 f"Brep creation errors! The following "
                 f"{errored_brep.sum()} entries "
                 f"where ignored: {gdf.loc[errored_brep].index}"
             )
         else:
-            lg.info(f"{gdf.size} breps created")
+            log.info(
+                f"{gdf.size} breps created in {time.time()-start_time:,.2f} seconds"
+            )
         gdf = gdf.loc[~errored_brep, :]
 
+        # rename the user-defined template_column_name to the
+        # umi one ("TemplateName")
+        gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
+
         # create the UmiProject object
-        name = kwargs.get("name")
-        umi_project = cls(project_name=name, epw=epw, template_lib=template_lib)
-        umi_project.gdf_3dm = gdf
-        umi_project.gdf_world = gdf_world  # assign gdf_world here
-        umi_project.gdf_world_projected = gdf_world_projected
-        umi_project.to_crs = gdf._crs  # assign to_crs here
+        umi_project = cls(
+            epw=epw,
+            template_lib=template_lib,
+            gdf_3dm=gdf,
+            gdf_world=gdf_world,
+            gdf_world_projected=gdf_world_projected,
+            to_crs=gdf._crs,
+            **kwargs,
+        )
+
+        # Todo: Complete origin_unset stuff here
+        umi_project.sdl_common.update(
+            {"project-settings": {"origin_unset": (world_centroid.x, world_centroid.y)}}
+        )
 
         # Add all Breps to Model and append UUIDs to gdf
-        tqdm.pandas(desc="Adding Breps")
-        gdf["guid"] = gdf["rhino_geom"].progress_apply(
-            umi_project.file3dm.Objects.AddBrep
-        )
+        tqdm.pandas(desc="Adding Breps to File3dm")
+
+        def try_add(series):
+            if file3dm:
+                obj = file3dm.Objects.FindId(series[fid])
+                if obj:
+                    return obj.Attributes.Id
+            else:
+                return umi_project.file3dm.Objects.AddBrep(series["rhino_geom"])
+
+        gdf["guid"] = gdf.progress_apply(try_add, axis=1)
         gdf.drop(columns=["rhino_geom"], inplace=True)  # don't carry around
 
-        for obj in umi_project.file3dm.Objects:
-            obj.Attributes.LayerIndex = umi_project.umiLayers["umi::Buildings"].Index
-            obj.Attributes.Name = str(
-                gdf.loc[gdf.guid == obj.Attributes.Id, fid].values[0]
-            )
+        def move_to_layer(series):
+            """finds the rhino3dm geometry for this series' guid and moves
+            it to the correct layer: Shading if the template assignment is
+            None, Buildings for the rest
+            """
+            obj3dm = umi_project.file3dm.Objects.FindId(series.guid)
+            if series["TemplateName"] is None:
+                obj3dm.Attributes.LayerIndex = umi_project.umiLayers[
+                    "umi::Context::Shading"
+                ].Index
+            else:
+                obj3dm.Attributes.LayerIndex = umi_project.umiLayers[
+                    "umi::Buildings"
+                ].Index
+            obj3dm.Attributes.Name = str(series[fid])
+
+        # Move Breps to layers (Buildings or Shading)
+        tqdm.pandas(desc="Moving Breps on layers")
+        gdf.progress_apply(move_to_layer, axis=1)
 
         umi_project.add_default_shoebox_settings()
 
         umi_project.update_umi_sqlite3()
-
-        umi_project.add_site_boundary()
 
         return umi_project
 
@@ -488,7 +588,7 @@ class UmiProject:
             index_label="key",
             con=self.umi_sqlite3,
             if_exists="replace",
-            method="multi",
+            # method="multi",
         )  # write to sql, replace existing
 
         # Second, update non-plottable settings
@@ -519,7 +619,7 @@ class UmiProject:
             UmiProject: self
         """
         bldg_attributes = self.DEFAULT_SHOEBOX_SETTINGS
-        # First add columns if they don't exist
+        # First add columns if they don't exist with default values
         for attr in bldg_attributes:
             if attr not in self.gdf_3dm.columns:
                 self.gdf_3dm[attr] = bldg_attributes[attr]
@@ -556,7 +656,17 @@ class UmiProject:
 
     @classmethod
     def open(cls, filename):
-        """"""
+        """Returns an UmiProject from file.
+
+        Hint:
+            Managing Projections:
+
+        Args:
+            filename:
+
+        Returns:
+
+        """
         filename = Path(filename)
         project_name = filename.stem
         # with unziped file load in the files
@@ -569,8 +679,7 @@ class UmiProject:
 
                 epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
                 umizip.extract(epw_file, tempdir)
-                epw = Epw()
-                epw.read(Path(tempdir) / epw_file)
+                epw = Epw(Path(tempdir) / epw_file)
 
                 tmp_lib, *_ = (
                     file
@@ -579,9 +688,6 @@ class UmiProject:
                 )
                 with umizip.open(tmp_lib) as f:
                     template_lib = json.load(f)
-                umizip.extract(epw_file, tempdir)
-                epw = Epw()
-                epw.read(Path(tempdir) / epw_file)
 
                 sdl_common = {}  # prepare sdl-common dict
 
@@ -600,8 +706,9 @@ class UmiProject:
                         )
                         umizip.extract("sdl-common/project.json", tempdir)
                         gdf_3dm = GeoDataFrame.from_file(
-                            Path(tempdir) / "sdl-common/project.json", crs=utm_crs
+                            Path(tempdir) / "sdl-common/project.json"
                         )
+                        gdf_3dm._crs = CRS.from_string(utm_crs)  # set the CRS
                     else:
                         with umizip.open(file) as f:
                             try:
@@ -609,15 +716,47 @@ class UmiProject:
                             except JSONDecodeError:
                                 sdl_common[Path(file).stem] = {}
 
-        umi_project = cls.from_gdf(
-            gdf_3dm,
-            "Height",
-            project_name=project_name,
+        try:
+            xoff, yoff = sdl_common["project-settings"]["origin_unset"]
+            log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
+        except KeyError:
+            from shapely.geometry import Point
+
+            lat, lon = map(float, epw.headers["LOCATION"][5:7])
+            log.warning(
+                "Since no 'origin_unset' is specified in the "
+                "project-settings, the world location is set to the "
+                f"weather file location: lat {lat}, lon {lon}"
+            )
+
+            # Creating the origin_unset location
+            # Point take the lon, lat (reverse!)
+            origin_unset = (
+                GeoSeries([Point(lon, lat)], name="origin_unset", crs="EPSG:4326")
+                .to_crs(utm_crs)
+                .geometry
+            )
+            xoff, yoff = origin_unset.x, origin_unset.y
+
+        gdf_world_projected = gdf_3dm.copy()
+        gdf_world_projected.geometry = gdf_world_projected.translate(xoff, yoff)
+
+        gdf_world = project_gdf(gdf_world_projected, to_latlong=True)
+
+        umi_layers = UmiLayers(file3dm)
+
+        umi_project = cls(
+            project_name,
             epw=epw,
-            fid="id",
             template_lib=template_lib,
             file3dm=file3dm,
+            gdf_world=gdf_world,
+            gdf_world_projected=gdf_world_projected,
+            gdf_3dm=gdf_3dm,
+            umi_layers=umi_layers,
+            to_crs=utm_crs,
         )
+
         return umi_project
 
     def to_file(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
@@ -693,37 +832,48 @@ class UmiProject:
         Returns:
             UmiProject: self
         """
-        dst = Path(".")  # set destination as current directory
+        dst = Path(".")  # set default destination as current directory
         if filename:  # a specific filename is passed
             dst = Path(filename).dirname()  # set dir path
             self.name = Path(filename).stem  # update project name
 
-        # First, write files to tmp destination
-        self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
-        self.umi_sqlite3.commit()  # commit db changes
+        # export needed class attributes to outfile
+        outfile = (dst / Path(self.name) + ".umi").expand()
+        with ZipFile(outfile, "w") as zip_archive:
 
-        with open((self.tmp / "sdl-common").mkdir_p() / "project.json", "w") as common:
+            # 1. Save the file3dm object to the archive.
+            if self.file3dm is not None:
+                self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
+                zip_archive.write(self.tmp / (self.name + ".3dm"), (self.name + ".3dm"))
+
+            # 2. Save the epw object to the archive
+            if self.epw:
+                epw_archive = ZipInfo(str(self.epw.name))
+                zip_archive.writestr(epw_archive, self.epw.as_str())
+
+            # 3. Save the template-library to the archive
+            if self.template_lib:
+                lib_archive = ZipInfo("template-library.json")
+                zip_archive.writestr(
+                    lib_archive, json.dumps(self.template_lib, indent=3)
+                )  # Todo: Eventually use archetypal here
+
+            # 4. Save all the sdl-common objects to the archive
+            for k, v in self.sdl_common.items():
+                k_archive = ZipInfo(f"sld-common/{k}")
+                zip_archive.writestr(k_archive, json.dumps(v, indent=3))
+
+            # 5. Save GeoDataFrame to archive
             if not self.gdf_3dm.empty:
                 _json = self.gdf_3dm.to_json(cls=ComplexEncoder)
-                response = json.loads(_json)
-                json.dump(response, common, indent=3)
+                gdf_3dm_archive = ZipInfo("sdl-common/project.json")
+                zip_archive.writestr(gdf_3dm_archive, json.dumps(_json))
 
-                for project_setting in self.project_settings:
-                    json.dump(response, common, indent=3)
+            # 6. Commit sqlite3 db changes and copy to archive
+            self.umi_sqlite3.commit()  # commit db changes
+            zip_archive.write(self.tmp / "umi.sqlite3", "umi.sqlite3")
 
-        # Second, loop over files in tmp folder and copy to dst
-        outfile = (dst / Path(self.name) + ".umi").expand()
-        with ZipFile(outfile, "w") as zip_file:
-            for file in self.tmp.files():
-                # write `file` to arcname `file.basename()`
-                zip_file.write(file, file.basename())
-            for file in (self.tmp / "sdl-common").files():
-                zip_file.write(file, "sdl-common" / file.basename())
-
-        # Todo: Save template-lib dict to file
-        # Todo: Save epw object to file
-
-        lg.info(f"Saved to {outfile.abspath()}")
+        log.info(f"Saved to {outfile.abspath()}")
 
         return self
 
@@ -736,6 +886,7 @@ class UmiProject:
         truncate_by_edge=False,
         clean_periphery=True,
         custom_filter=None,
+        on_file3dm_layer=None,
     ):
         """Downloads a spatial street graph from OpenStreetMap's APIs and
         transforms it to PolylineCurves to the self.file3dm document.
@@ -768,12 +919,15 @@ class UmiProject:
                 pass in a network_type that is in
                 settings.bidirectional_network_types if you want graph to be
                 fully bi-directional.
+            on_file3dm_layer (str, or Layer): specify on which file3dm layer
+                the pois will be put. Defaults to umi::Context.
 
         Examples:
-            >>> from pyumi.umi_project import UmiProject
-            >>> UmiProject.from_gis().add_street_graph(
-            >>>     network_type="all_private",retain_all=True,
-            >>>     clean_periphery=False
+            >>> # Given an UmiProject umi,
+            >>> umi.add_street_graph(
+            >>>     network_type="all_private",
+            >>>     retain_all=True,
+            >>>     clean_periphery=False,
             >>> ).save()
 
             Do not forget to save!
@@ -781,18 +935,20 @@ class UmiProject:
         Returns:
             UmiProject: self
         """
-        if getattr(self, "gdf_world", None) is None:
-            raise ValueError("This UmiProject does not contain a GeoDataFrame")
         import osmnx as ox
 
         # Configure osmnx
-        ox.config(log_console=True, use_cache=True)
+        ox.config(log_console=True, use_cache=True, log_name=log.name)
+
         if polygon is None:
             # Create the boundary polygon. Here we use the convex_hull
-            # polygon : shapely.geometry.Polygon or shapely.geometry.MultiPolygon
-            #           the shape to get network data within. coordinates should
-            #           be in units of latitude-longitude degrees.
-            polygon = self.gdf_world.to_crs("EPSG:4326").unary_union.convex_hull
+            # polygon : shapely.geometry.Polygon or
+            # shapely.geometry.MultiPolygon the shape to get network data
+            # within. coordinates should be in units of latitude-longitude
+            # degrees.
+            polygon = self.gdf_world.unary_union.convex_hull
+
+        # Retrieve the street graph from OSM
         self.street_graph = ox.graph_from_polygon(
             polygon,
             network_type,
@@ -802,35 +958,52 @@ class UmiProject:
             clean_periphery,
             custom_filter,
         )
-        self.street_graph = ox.project_graph(self.street_graph, self.to_crs)
-        gdf_edges = ox.graph_to_gdfs(self.street_graph, nodes=False)
+        if is_empty(self.street_graph):
+            log.warning("No street graph found for location. Check your projection")
+            return self
+        # Project to UmiProject crs
+        street_graph = project_graph(self.street_graph, self.to_crs)
+
+        # Convert graph to edges with geom info (GeoDataFrame)
+        gdf_nodes, gdf_edges = ox.graph_to_gdfs(street_graph, nodes=True, edges=True)
+
+        # Move to 3dm origin
         gdf_edges.geometry = gdf_edges.translate(
-            -self.gdf_world.unary_union.centroid.x,
-            -self.gdf_world.unary_union.centroid.y,
+            -self.gdf_world_projected.unary_union.centroid.x,
+            -self.gdf_world_projected.unary_union.centroid.y,
+        )
+        # Move to 3dm origin
+        gdf_nodes.geometry = gdf_nodes.translate(
+            -self.gdf_world_projected.unary_union.centroid.x,
+            -self.gdf_world_projected.unary_union.centroid.y,
+        )
+        # Parse geometries
+        if not on_file3dm_layer:
+            on_file3dm_layer = self.umiLayers["umi::Context::Streets"]
+        if isinstance(on_file3dm_layer, str):
+            on_file3dm_layer = self.umiLayers[on_file3dm_layer]
+
+        tqdm.pandas(desc="Adding street nodes to file3dm")
+        guids = gdf_nodes.progress_apply(
+            resolve_3dmgeom,
+            args=(
+                self.file3dm,
+                on_file3dm_layer,
+            ),
+            axis=1,
         )
 
-        def to_polylinecurve(series):
-            """Create geometry and add to 2dm file"""
-            _3dmgeom = PolylineCurve(
-                Point3dList([Point3d(x, y, 0) for x, y in series.geometry.coords])
-            )
-            attr = ObjectAttributes()  # Initiate attributes object
-            attr.LayerIndex = self.umiLayers["umi::Context::Streets"].Index  #
-            # Set lyr index
-            try:
-                name_str_or_list = series["name"]
-                if name_str_or_list and isinstance(name_str_or_list, list):
-                    attr.Name = "+ ".join(name_str_or_list)  # Set Name as St. name
-                elif name_str_or_list and isinstance(name_str_or_list, str):
-                    attr.Name = name_str_or_list
-            except KeyError:
-                pass
+        tqdm.pandas(desc="Adding street edges to file3dm")
+        guids = gdf_edges.progress_apply(
+            resolve_3dmgeom,
+            args=(
+                self.file3dm,
+                on_file3dm_layer,
+            ),
+            axis=1,
+        )
 
-            # Add to file3dm
-            guid = self.file3dm.Objects.AddCurve(_3dmgeom, attr)
-            return guid
-
-        guids = gdf_edges.apply(to_polylinecurve, axis=1)
+        # todo: Add generated guids somewhere for reference
 
         return self
 
@@ -854,20 +1027,36 @@ class UmiProject:
             on_file3dm_layer (str, or Layer): specify on which file3dm layer
                 the pois will be put. Defaults to umi::Context.
 
+        Examples:
+            >>> # Given an UmiProject umi,
+            >>> umi.add_pois(
+            >>>     tags=dict(
+            >>>        natural=["tree_row", "tree", "wood"],
+            >>>        trees=True
+            >>>     ),
+            >>>     on_file3dm_layer="umi::Context::Trees",
+            >>> ).save()
+
         Returns:
             UmiProject: self
         """
         import osmnx as ox
 
-        ox.config(log_console=True, use_cache=True)
+        # Configure osmnx
+        ox.config(log_console=True, use_cache=True, log_name=log.name)
 
         if polygon is None:
+            # Create the boundary polygon. Here we use the convex_hull
+            # polygon : shapely.geometry.Polygon or
+            # shapely.geometry.MultiPolygon the shape to get network data
+            # within. coordinates should be in units of latitude-longitude
+            # degrees.
             polygon = self.gdf_world.unary_union.convex_hull
 
         # Retrieve the pois from OSM
-        gdf = ox.geometries_from_polygon(polygon, tags=tags)
+        gdf = geometries_from_polygon(polygon, tags=tags)
         if gdf.empty:
-            lg.warning("No pois found for location. Check your tags")
+            log.warning("No pois found for location. Check your tags")
             return self
         # Project to UmiProject crs
         gdf = ox.project_gdf(gdf, self.to_crs)
@@ -877,85 +1066,91 @@ class UmiProject:
             -self.gdf_world_projected.unary_union.centroid.x,
             -self.gdf_world_projected.unary_union.centroid.y,
         )
-
-        def resolve_3dmgeom(series, on_file3dm_layer):
-            geom = series.geometry  # Get the geometry
-
-            if isinstance(geom, shapely.geometry.Point):
-                # if geom is a Point
-                guid = self.file3dm.Objects.AddPoint(geom.x, geom.y, 0)
-                geom3dm, *_ = filter(
-                    lambda x: x.Attributes.Id == guid, self.file3dm.Objects
-                )
-                geom3dm.Attributes.LayerIndex = on_file3dm_layer.Index
-                geom3dm.Attributes.Name = str(series.osmid)
-            elif isinstance(
-                geom, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
-            ):
-                # if geom is a Polygon
-                polycurve = PolylineCurve(
-                    Point3dList([Point3d(x, y, 0) for x, y, *z in geom.exterior.coords])
-                )
-                # This is somewhat of a hack. The surface is created by
-                # trimming the WorldXY plane to a PolylineCurve.
-                geom3dm = Brep.CreateTrimmedPlane(
-                    Plane.WorldXY(),
-                    polycurve,
-                )
-
-                # Set the pois attributes
-                geom3dm_attr = ObjectAttributes()
-                geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-                geom3dm_attr.Name = str(series.osmid)
-                geom3dm_attr.ObjectColor = (205, 247, 201, 255)
-
-                guid = self.file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
-            elif isinstance(geom, shapely.geometry.MultiPolygon):
-                # if geom is a MultiPolygon, iterate over
-                for polygon in geom:
-                    polycurve = PolylineCurve(
-                        Point3dList(
-                            [Point3d(x, y, 0) for x, y, *z in polygon.exterior.coords]
-                        )
-                    )
-                    # This is somewhat of a hack. The surface is created by
-                    # trimming the WorldXY plane to a PolylineCurve.
-                    geom3dm = Brep.CreateTrimmedPlane(
-                        Plane.WorldXY(),
-                        polycurve,
-                    )
-
-                    # Set the pois attributes
-                    geom3dm_attr = ObjectAttributes()
-                    geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-                    geom3dm_attr.Name = str(series.osmid)
-                    geom3dm_attr.ObjectColor = (205, 247, 201, 255)
-
-                    guid = self.file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
-            elif isinstance(geom, shapely.geometry.linestring.LineString):
-                geom3dm = PolylineCurve(
-                    Point3dList([Point3d(x, y, 0) for x, y, *z in geom.coords])
-                )
-                geom3dm_attr = ObjectAttributes()
-                geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-                geom3dm_attr.Name = str(series.osmid)
-
-                guid = self.file3dm.Objects.AddCurve(geom3dm, geom3dm_attr)
-            else:
-                raise NotImplementedError(
-                    f"osmnx: geometry (osmid={series.osmid}) of type "
-                    f"{type(geom)} cannot be parsed as a rhino3dm object"
-                )
-            return guid
-
         # Parse geometries
         if not on_file3dm_layer:
-            on_file3dm_layer = self.umiLayers["umi::Context"]
+            on_file3dm_layer = self.umiLayers.add_layer("umi::Context::POIs")
         if isinstance(on_file3dm_layer, str):
             on_file3dm_layer = self.umiLayers[on_file3dm_layer]
-        self._pois_ids = gdf.apply(resolve_3dmgeom, args=(on_file3dm_layer,), axis=1)
+
+        tqdm.pandas(desc="Adding POIs to file3dm")
+        guids = gdf.progress_apply(
+            resolve_3dmgeom,
+            args=(
+                self.file3dm,
+                on_file3dm_layer,
+            ),
+            axis=1,
+        )
+
+        # todo: Add generated guids somewhere for reference
 
         return self
+
+
+def resolve_3dmgeom(series, file3dm, on_file3dm_layer):
+    geom = series.geometry  # Get the geometry
+    if isinstance(geom, shapely.geometry.Point):
+        # if geom is a Point
+        guid = file3dm.Objects.AddPoint(geom.x, geom.y, 0)
+        geom3dm = file3dm.Objects.FindId(guid)
+        geom3dm.Attributes.LayerIndex = on_file3dm_layer.Index
+        geom3dm.Attributes.Name = str(series.osmid)
+        return guid
+    elif isinstance(geom, shapely.geometry.Polygon):
+        # if geom is a Polygon
+        geom3dm = _poygon_to_brep(geom)
+
+        # Set the pois attributes
+        geom3dm_attr = ObjectAttributes()
+        geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+        geom3dm_attr.Name = str(series.osmid)
+        geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+
+        guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
+        return guid
+    elif isinstance(geom, shapely.geometry.MultiPolygon):
+        # if geom is a MultiPolygon, iterate over as polygon
+        for polygon in geom:
+            geom3dm = _poygon_to_brep(polygon)
+            # Set the pois attributes
+            geom3dm_attr = ObjectAttributes()
+            geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+            geom3dm_attr.Name = str(series.osmid)
+            geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+
+            guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
+        return guid
+    elif isinstance(geom, shapely.geometry.linestring.LineString):
+        geom3dm = _linestring_to_curve(geom)
+        geom3dm_attr = ObjectAttributes()
+        geom3dm_attr.LayerIndex = on_file3dm_layer.Index
+        geom3dm_attr.Name = str(series.osmid)
+
+        guid = file3dm.Objects.AddCurve(geom3dm, geom3dm_attr)
+        return guid
+    else:
+        raise NotImplementedError(
+            f"osmnx: geometry (osmid={series.osmid}) of type "
+            f"{type(geom)} cannot be parsed as a rhino3dm object"
+        )
+
+
+def _linestring_to_curve(geom):
+    geom3dm = PolylineCurve(Point3dList([Point3d(x, y, 0) for x, y, *z in geom.coords]))
+    return geom3dm
+
+
+def _poygon_to_brep(geom):
+    polycurve = PolylineCurve(
+        Point3dList([Point3d(x, y, 0) for x, y, *z in geom.exterior.coords])
+    )
+    # This is somewhat of a hack. The surface is created by
+    # trimming the WorldXY plane to a PolylineCurve.
+    geom3dm = Brep.CreateTrimmedPlane(
+        Plane.WorldXY(),
+        polycurve,
+    )
+    return geom3dm
 
 
 create_nonplottable_setting = """create table nonplottable_setting
