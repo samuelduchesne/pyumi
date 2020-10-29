@@ -155,8 +155,31 @@ umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
 ```
 
 ### Save
-As shown above, to save an UmiProject, simply call the `.save()` method and the 
+As shown above, to save an UmiProject, simply call the `.save()` method.
 
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+umi.save("oshkosh_demo_copy.umi")
+```
 
-### Export (to_file)
-For 
+### Export (to_file) 
+For compatibility with other workflows, it is possible to export to
+multiple file formats.
+
+For now, any GIS file format supported by fiona is available. To see a list:
+
+```python
+import fiona; fiona.supported_drivers
+```
+
+For example, to export to GeoJSON:
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+umi.export("project_name.json", driver="GeoJSON")
+```
+
+In the future, other drivers will become available such as 
+[URBANopt™](https://docs.urbanopt.net/).

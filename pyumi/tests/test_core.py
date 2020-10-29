@@ -1,6 +1,5 @@
 import logging as lg
 import uuid
-from unittest.mock import patch
 
 import pytest
 from fiona.errors import DriverError
@@ -119,24 +118,25 @@ class TestUmiProjectOps:
         assert Path("empty_project_other_name_no_extension.umi").exists()
 
     def test_export_to_file(self, project_from_gis):
-        project_from_gis.to_file("test_project.geojson")
+        project_from_gis.export("test_project.geojson")
 
         assert Path("test_project.geojson").exists()
 
     def test_export_to_file_shapefile(self, project_from_gis):
-        project_from_gis.to_file("test_project", driver="ESRI Shapefile")
+        project_from_gis.export("test_project", driver="ESRI Shapefile")
 
         assert Path("test_project").isdir()
         assert Path("test_project").exists()
 
     def test_export_to_file_invalid_dst(self, project_from_gis):
         with pytest.raises(DriverError):
-            project_from_gis.to_file("a_folder/test_project.geojson")
+            project_from_gis.export("a_folder/test_project.geojson")
 
     def test_open(self):
-        with patch("builtins.input", return_value="0, 0"):
-            umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
-            print(umi)
+        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+
+    def test_open_with_origin_unset(self):
+        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi", origin_unset=(0, 0))
 
 
 class TestUmiLayers:

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import shapely
 from epw import epw
+from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
 from networkx import is_empty
 from osmnx import geometries_from_polygon, project_gdf, project_graph
@@ -38,6 +39,7 @@ from tqdm import tqdm
 from pyumi.umi_layers import UmiLayers
 
 # create logger
+PYUMI_DRIVERS = []  # Todo: Specify future output formats here.
 log = logging.getLogger("pyumi.UmiProject")
 
 
@@ -156,6 +158,7 @@ class UmiProject:
         umi_layers=None,
         to_crs=None,
         umi_sqlite=None,
+        fid="fid",
     ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -167,6 +170,7 @@ class UmiProject:
             template_lib (str or Path):
         """
 
+        self.fid = fid  # Column use as unique id gdf3dm
         self.sdl_common = {}
         self.to_crs = to_crs
         self.gdf_world = gdf_world if gdf_world is not None else GeoDataFrame()
@@ -441,7 +445,7 @@ class UmiProject:
             if "fid" in gdf.columns:
                 pass  # This is a user-defined fid
             else:
-                gdf["fid"] = gdf.index.values  # This serial fid
+                gdf[fid] = gdf.index.values  # This serial fid
         # Explode to singlepart
         gdf = gdf.explode()  # The index of the input geodataframe is no
         # longer unique and is replaced with a multi-index (original index
@@ -655,17 +659,32 @@ class UmiProject:
         return self
 
     @classmethod
-    def open(cls, filename):
-        """Returns an UmiProject from file.
+    def open(cls, filename, origin_unset=None):
+        """Reads an UmiProject from file.
 
         Hint:
-            Managing Projections:
+            Managing Projections: The UmiProject is loaded by reading the
+            file "sdl-common/project.json", a geojson representation of the
+            project. Sometimes, the geometries have been moved to the rhino
+            origin, effectively losing their position in the real world. The
+            `origin_unset` parameter (either defined as a parameter of
+            :meth:`UmiProject.open` or in the
+            "sdl-common/project-settings.json" is used to translate back the
+            geometries.
+
+        Examples:
+            >>> from pyumi.umi_project import UmiProject
+            >>> umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
 
         Args:
-            filename:
+            filename (str or Path): The filename to open.
+            origin_unset (tuple): A tuple of (lat, lon) Used to move the
+                project to a known geographic location. This can be used to
+                translate rhino geometries back to meaningful cartesian
+                coordinates.
 
         Returns:
-
+            UmiProject: The loaded UmiProject
         """
         filename = Path(filename)
         project_name = filename.stem
@@ -716,23 +735,33 @@ class UmiProject:
                             except JSONDecodeError:
                                 sdl_common[Path(file).stem] = {}
 
+        # Before translating the geometries, resolve the
+        # origin_unset value
         try:
+            # First, look in project-settings
             xoff, yoff = sdl_common["project-settings"]["origin_unset"]
             log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
         except KeyError:
-            from shapely.geometry import Point
-
-            lat, lon = map(float, epw.headers["LOCATION"][5:7])
-            log.warning(
-                "Since no 'origin_unset' is specified in the "
-                "project-settings, the world location is set to the "
-                f"weather file location: lat {lat}, lon {lon}"
-            )
-
-            # Creating the origin_unset location
-            # Point take the lon, lat (reverse!)
+            # Not defined in project-settings
+            if origin_unset is None:
+                # then use weather file location
+                lat, lon = map(float, epw.headers["LOCATION"][5:7])
+                log.warning(
+                    "Since no 'origin_unset' is specified in the "
+                    "project-settings, the world location is set to the "
+                    f"weather file location: lat {lat}, lon {lon}"
+                )
+            else:
+                # origin_unset is defined in the constructor
+                lat, lon = origin_unset  # unpack into lat lon variables
+            # Create the origin_unset geometry. Point takes the lon,
+            # lat (reverse!)
             origin_unset = (
-                GeoSeries([Point(lon, lat)], name="origin_unset", crs="EPSG:4326")
+                GeoSeries(
+                    [shapely.geometry.Point(lon, lat)],
+                    name="origin_unset",
+                    crs="EPSG:4326",
+                )
                 .to_crs(utm_crs)
                 .geometry
             )
@@ -754,12 +783,13 @@ class UmiProject:
             gdf_world_projected=gdf_world_projected,
             gdf_3dm=gdf_3dm,
             umi_layers=umi_layers,
-            to_crs=utm_crs,
+            to_crs=CRS.from_user_input(utm_crs),
+            fid="id",
         )
 
         return umi_project
 
-    def to_file(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
+    def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
         """Write the ``UmiProject`` to another file format. The
         :attr:`UmiProject.gdf_3dm` is first translated back to the
         :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
@@ -795,10 +825,10 @@ class UmiProject:
 
         Examples:
             >>> from pyumi.umi_project import UmiProject
-            >>> UmiProject().to_file("project name", driver="ESRI Shapefile")
+            >>> UmiProject().export("project name", driver="ESRI Shapefile")
             Or
             >>> from pyumi.umi_project import UmiProject
-            >>> UmiProject().to_file("project name", driver="GeoJSON")
+            >>> UmiProject().export("project name", driver="GeoJSON")
 
         Returns:
             None
@@ -806,7 +836,7 @@ class UmiProject:
         world_crs = self.gdf_world._crs  # get utm crs
         exp_gdf = self.gdf_3dm.copy()  # make a copy
 
-        dtype_map = {"guid": str}
+        dtype_map = {self.fid: str, "guid": str}  # UUIDs as string
         exp_gdf.loc[:, list(dtype_map)] = exp_gdf.astype(dtype_map)
 
         xdiff, ydiff = self.gdf_world_projected.unary_union.centroid.coords[0]
@@ -818,9 +848,14 @@ class UmiProject:
         exp_gdf = project_gdf(exp_gdf, world_crs)
 
         # Convert to file. Uses fiona
-        exp_gdf.to_file(
-            filename=filename, driver=driver, schema=schema, index=index, **kwargs
-        )
+        if driver in fiona_drivers:
+            exp_gdf.to_file(
+                filename=filename, driver=driver, schema=schema, index=index, **kwargs
+            )
+        elif driver in PYUMI_DRIVERS:
+            pass  # Todo: implement export drivers here
+        else:
+            raise NotImplementedError(f"The drive {driver} is not supported.")
 
     def save(self, filename=None):
         """Saves the UmiProject to a packaged .umi file (zipped folder)
