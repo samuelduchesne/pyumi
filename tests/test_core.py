@@ -27,9 +27,9 @@ class TestUmiProject:
     }
 
     def test_create_umiproject_from_geojson_testfile(self):
-        filename = Path("pyumi/tests/oshkosh_demo.geojson")
-        epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
-        template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
+        filename = Path("tests/oshkosh_demo.geojson")
+        epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
         umi = UmiProject.from_gis(
             filename,
@@ -68,9 +68,9 @@ class TestUmiProject:
         ],
     )
     def test_multilevel(self, multi_attributes, map_to_column):
-        filename = Path("pyumi/tests/oshkosh_demo.geojson")
-        epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
-        template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
+        filename = Path("tests/oshkosh_demo.geojson")
+        epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
         umi = UmiProject.from_gis(
             filename,
@@ -87,9 +87,9 @@ class TestUmiProject:
 class TestUmiProjectOps:
     @pytest.fixture()
     def project_from_gis(self):
-        filename = Path("pyumi/tests/oshkosh_demo.geojson")
-        epw = Path("pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
-        template_lib = Path("pyumi/tests/BostonTemplateLibrary.json")
+        filename = Path("tests/oshkosh_demo.geojson")
+        epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
+        template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
         yield UmiProject.from_gis(
             filename,
@@ -133,10 +133,10 @@ class TestUmiProjectOps:
             project_from_gis.export("a_folder/test_project.geojson")
 
     def test_open(self):
-        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+        umi = UmiProject.open("tests/oshkosh_demo.umi")
 
     def test_open_with_origin_unset(self):
-        umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi", origin_unset=(0, 0))
+        umi = UmiProject.open("tests/oshkosh_demo.umi", origin_unset=(0, 0))
 
 
 class TestUmiLayers:
