@@ -674,7 +674,7 @@ class UmiProject:
 
         Examples:
             >>> from pyumi.umi_project import UmiProject
-            >>> umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+            >>> umi = UmiProject.open("tests/oshkosh_demo.umi")
 
         Args:
             filename (str or Path): The filename to open.
@@ -973,7 +973,7 @@ class UmiProject:
         import osmnx as ox
 
         # Configure osmnx
-        ox.config(log_console=True, use_cache=True, log_name=log.name)
+        ox.config(log_console=False, use_cache=True, log_name=log.name)
 
         if polygon is None:
             # Create the boundary polygon. Here we use the convex_hull
@@ -1078,7 +1078,7 @@ class UmiProject:
         import osmnx as ox
 
         # Configure osmnx
-        ox.config(log_console=True, use_cache=True, log_name=log.name)
+        ox.config(log_console=False, use_cache=True, log_name=log.name)
 
         if polygon is None:
             # Create the boundary polygon. Here we use the convex_hull

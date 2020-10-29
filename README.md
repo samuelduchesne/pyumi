@@ -50,7 +50,7 @@ them.
 ```python
 
 from pyumi.umi_project import UmiProject
-filename = "pyumi/tests/oshkosh_demo.zip"
+filename = "tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
@@ -81,7 +81,7 @@ Using this multilevel map, we also pass two column names to the constructor `map
 ```python
 
 from pyumi.umi_project import UmiProject
-filename = "pyumi/tests/oshkosh_demo.zip"
+filename = "tests/oshkosh_demo.zip"
 epw = "pyumi/tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "pyumi/tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
@@ -151,7 +151,7 @@ To open an existing `.umi` file. simply call the `UmiProject.open()` constructor
 
 ```python
 from pyumi.umi_project import UmiProject
-umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+umi = UmiProject.open("tests/oshkosh_demo.umi")
 ```
 
 ### Save
@@ -159,7 +159,7 @@ As shown above, to save an UmiProject, simply call the `.save()` method.
 
 ```python
 from pyumi.umi_project import UmiProject
-umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+umi = UmiProject.open("tests/oshkosh_demo.umi")
 umi.save("oshkosh_demo_copy.umi")
 ```
 
@@ -177,7 +177,7 @@ For example, to export to GeoJSON:
 
 ```python
 from pyumi.umi_project import UmiProject
-umi = UmiProject.open("pyumi/tests/oshkosh_demo.umi")
+umi = UmiProject.open("tests/oshkosh_demo.umi")
 umi.export("project_name.json", driver="GeoJSON")
 ```
 
