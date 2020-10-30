@@ -5,7 +5,7 @@ import math
 import tempfile
 import time
 import uuid
-from io import StringIO
+from io import StringIO, TextIOWrapper
 from json import JSONDecodeError
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
@@ -371,7 +371,14 @@ class UmiProject:
         gdf.index = _index
 
         umi_project = cls.from_gdf(
-            gdf, height_column_name, "TMP", epw, template_lib, to_crs, fid, **kwargs
+            gdf,
+            height_column_name,
+            "TMP",
+            epw,
+            template_lib,
+            to_crs,
+            fid,
+            **kwargs,
         )
         umi_project.add_site_boundary()
         return umi_project
@@ -691,6 +698,8 @@ class UmiProject:
         project_name = filename.stem
         # with unziped file load in the files
         with ZipFile(filename) as umizip:
+            # 1. Read the 3dm file. Needs a temp directory because cannot be
+            # read in memory.
             with tempfile.TemporaryDirectory() as tempdir:
                 # extract and load file3dm
                 file3dm, *_ = (
@@ -699,44 +708,49 @@ class UmiProject:
                 umizip.extract(file3dm, tempdir)
                 file3dm = File3dm.Read(Path(tempdir) / file3dm)
 
-                epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
-                umizip.extract(epw_file, tempdir)
-                epw = Epw(Path(tempdir) / epw_file)
+            # 2. Parse the weather file as :class:`Epw`
+            epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
+            with umizip.open(epw_file) as f:
+                _str = TextIOWrapper(f, "utf-8")
+                epw = Epw(_str)
 
-                tmp_lib, *_ = (
-                    file
-                    for file in umizip.namelist()
-                    if ".json" in file and "sdl-common" not in file
-                )
-                with umizip.open(tmp_lib) as f:
-                    template_lib = json.load(f)
+            # 3. Parse the templates library.
+            tmp_lib, *_ = (
+                file
+                for file in umizip.namelist()
+                if ".json" in file and "sdl-common" not in file
+            )
+            with umizip.open(tmp_lib) as f:
+                template_lib = json.load(f)
 
-                sdl_common = {}  # prepare sdl-common dict
+            # 4. Parse all the .json files in "sdl-common" folder
+            sdl_common = {}  # prepare sdl_common dict
 
-                # loop over 'sdl-common' config files (.json)
-                for file in [
-                    file for file in umizip.namelist() if "sdl-common" in file
-                ]:
-                    if file == "sdl-common/project.json":
-                        # extract and load GeoDataFrame
+            # loop over 'sdl-common' config files (.json)
+            for file in [
+                file for file in umizip.infolist() if "sdl-common" in file.filename
+            ]:
+                if file.filename.endswith("project.json"):
+                    # This is the geojson representaiton of the
+                    # project.
 
-                        lat, lon = epw.headers["LOCATION"][5:7]
-                        utm_zone = int(math.floor((float(lon) + 180) / 6.0) + 1)
-                        utm_crs = (
-                            f"+proj=utm +zone={utm_zone} +ellps=WGS84 "
-                            f"+datum=WGS84 +units=m +no_defs"
-                        )
-                        umizip.extract("sdl-common/project.json", tempdir)
-                        gdf_3dm = GeoDataFrame.from_file(
-                            Path(tempdir) / "sdl-common/project.json"
-                        )
-                        gdf_3dm._crs = CRS.from_string(utm_crs)  # set the CRS
-                    else:
-                        with umizip.open(file) as f:
-                            try:
-                                sdl_common[Path(file).stem] = json.load(f)
-                            except JSONDecodeError:  # todo: deal with xml
-                                sdl_common[Path(file).stem] = {}
+                    # First, figure out the utm_crs for the weather location
+                    lat, lon = epw.headers["LOCATION"][5:7]
+                    utm_zone = int(math.floor((float(lon) + 180) / 6.0) + 1)
+                    utm_crs = CRS.from_string(
+                        f"+proj=utm +zone={utm_zone} +ellps=WGS84 "
+                        f"+datum=WGS84 +units=m +no_defs"
+                    )
+                    # Second, load the GeoDataFrame
+                    with umizip.open(file) as gdf:
+                        gdf_3dm = GeoDataFrame.from_file(gdf)
+                        gdf_3dm._crs = utm_crs
+                else:
+                    with umizip.open(file) as f:
+                        try:
+                            sdl_common[Path(file).stem] = json.load(f)
+                        except JSONDecodeError:  # todo: deal with xml
+                            sdl_common[Path(file).stem] = {}
 
         # Before translating the geometries, resolve the
         # origin_unset value
@@ -852,7 +866,11 @@ class UmiProject:
         # Convert to file. Uses fiona
         if driver in fiona_drivers:
             exp_gdf.to_file(
-                filename=filename, driver=driver, schema=schema, index=index, **kwargs
+                filename=filename,
+                driver=driver,
+                schema=schema,
+                index=index,
+                **kwargs,
             )
         elif driver in PYUMI_DRIVERS:
             pass  # Todo: implement export drivers here
@@ -1253,6 +1271,108 @@ class Epw(epw):
         self.read(path)
 
         self.name = path
+
+        try:
+            path.close()
+        except Exception:
+            pass
+
+    def _read_headers(self, fp):
+        """Reads the headers of an epw file
+
+        Arguments:
+            - fp (str): the file path of the epw file
+
+        Return value:
+            - d (dict): a dictionary containing the header rows
+
+        """
+        d = {}
+        if isinstance(fp, str):
+            csvfile = open(fp, newline="")
+        else:
+            csvfile = fp
+        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
+        for row in csvreader:
+            if row[0].isdigit():
+                break
+            else:
+                d[row[0]] = row[1:]
+
+        return d
+
+    def _read_data(self, fp):
+        """Reads the climate data of an epw file
+
+        Arguments:
+            - fp (str): the file path of the epw file
+
+        Return value:
+            - df (pd.DataFrame): a DataFrame comtaining the climate data
+
+        """
+
+        names = [
+            "Year",
+            "Month",
+            "Day",
+            "Hour",
+            "Minute",
+            "Data Source and Uncertainty Flags",
+            "Dry Bulb Temperature",
+            "Dew Point Temperature",
+            "Relative Humidity",
+            "Atmospheric Station Pressure",
+            "Extraterrestrial Horizontal Radiation",
+            "Extraterrestrial Direct Normal Radiation",
+            "Horizontal Infrared Radiation Intensity",
+            "Global Horizontal Radiation",
+            "Direct Normal Radiation",
+            "Diffuse Horizontal Radiation",
+            "Global Horizontal Illuminance",
+            "Direct Normal Illuminance",
+            "Diffuse Horizontal Illuminance",
+            "Zenith Luminance",
+            "Wind Direction",
+            "Wind Speed",
+            "Total Sky Cover",
+            "Opaque Sky Cover (used if Horizontal IR Intensity missing)",
+            "Visibility",
+            "Ceiling Height",
+            "Present Weather Observation",
+            "Present Weather Codes",
+            "Precipitable Water",
+            "Aerosol Optical Depth",
+            "Snow Depth",
+            "Days Since Last Snowfall",
+            "Albedo",
+            "Liquid Precipitation Depth",
+            "Liquid Precipitation Quantity",
+        ]
+
+        first_row = self._first_row_with_climate_data(fp)
+        df = pd.read_csv(fp, skiprows=first_row, header=None, names=names)
+        return df
+
+    def _first_row_with_climate_data(self, fp):
+        """Finds the first row with the climate data of an epw file
+
+        Arguments:
+            - fp (str): the file path of the epw file
+
+        Return value:
+            - i (int): the row number
+
+        """
+        if isinstance(fp, str):
+            csvfile = open(fp, newline="")
+        else:
+            csvfile = fp
+        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
+        for i, row in enumerate(csvreader):
+            if row[0].isdigit():
+                break
+        return i
 
     @property
     def name(self):
