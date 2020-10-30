@@ -2,11 +2,13 @@ import csv
 import json
 import logging
 import math
+import re
 import tempfile
 import time
 import uuid
 from io import StringIO, TextIOWrapper
 from json import JSONDecodeError
+from sqlite3 import OperationalError
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
 
@@ -185,29 +187,33 @@ class UmiProject:
         self.file3dm = file3dm or File3dm()
         self.template_lib = template_lib
         self.epw = epw
+        self.energy = EnergyModule(self)
 
         # Initiate Layers in 3dm file
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
 
+        if isinstance(umi_sqlite, bytes):
+            with open(self.tmp / "umi.sqlite3", "wb") as f:
+                f.write(umi_sqlite)
+                umi_sqlite = None
         if umi_sqlite is None:
-            with connect(self.tmp / "umi.sqlite3") as con:
-                con.execute(create_nonplottable_setting)
-                con.execute(create_object_name_assignement)
-                con.execute(create_plottatble_setting)
-                con.execute(create_series)
-                con.execute(create_data_point)
+            con = connect(self.tmp / "umi.sqlite3")
         else:
-            with connect(Path(umi_sqlite).copy(self.tmp)) as con:
-                con.execute(create_nonplottable_setting)
-                con.execute(create_object_name_assignement)
-                con.execute(create_plottatble_setting)
-                con.execute(create_series)
-                con.execute(create_data_point)
+            con = connect(Path(umi_sqlite).copy(self.tmp))
+        try:
+            con.execute(create_nonplottable_setting)
+            con.execute(create_object_name_assignement)
+            con.execute(create_plottatble_setting)
+            con.execute(create_series)
+            con.execute(create_data_point)
+        except OperationalError:
+            pass  # tables already exist
 
         # Set ModelUnitSystem to Meters
         self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
 
         self.umi_sqlite3 = con
+        self.energy._get_series()
 
     @property
     def epw(self):
@@ -723,7 +729,11 @@ class UmiProject:
             with umizip.open(tmp_lib) as f:
                 template_lib = json.load(f)
 
-            # 4. Parse all the .json files in "sdl-common" folder
+            # 4. make connection with umi.sqlite3
+            with umizip.open("umi.sqlite3") as f:
+                umi_sqlite3 = f.read()
+
+            # 5. Parse all the .json files in "sdl-common" folder
             sdl_common = {}  # prepare sdl_common dict
 
             # loop over 'sdl-common' config files (.json)
@@ -803,6 +813,7 @@ class UmiProject:
             to_crs=CRS.from_user_input(utm_crs),
             fid="id",
             sdl_common=sdl_common,
+            umi_sqlite=umi_sqlite3,
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
@@ -1396,3 +1407,28 @@ class Epw(epw):
         epw_str = csvfile.read()
         csvfile.close()
         return epw_str
+
+
+class EnergyModule:
+    """Handles reporting energy results"""
+
+    _umi_project: UmiProject
+
+    def __init__(self, umi_project):
+        self._umi_project = umi_project
+
+    def results(self):
+        if self._df is None:
+            con = self._umi_project.umi_sqlite3
+            self._df = pd.read_sql(sql="select * from ", con=con)
+        return self._df
+
+    def _get_series(self):
+        series_names = self._umi_project.umi_sqlite3.execute(
+            """select distinct name, units, resolution from series"""
+        )
+        for name, units, resolution, *_ in series_names:
+            _name = re.sub(r"[^a-zA-Z0-9\n\.]", "_", name)  # valid name
+            # series_name = "_".join([resolution, _name, units])
+            # Todo: Read Series here
+            setattr(self, _name, None)
