@@ -323,7 +323,7 @@ class UmiProject:
         log.info(
             f"Read {gdf.memory_usage(index=True).sum() / 1000:,.1f}KB from"
             f" {input_file} in"
-            f" {time.time()-start_time:,.2f} seconds"
+            f" {time.time() - start_time:,.2f} seconds"
         )
         if "project_name" not in kwargs:
             kwargs["project_name"] = input_file.stem
@@ -434,7 +434,8 @@ class UmiProject:
         valid_attrs = ~gdf[height_column_name].isna()
         if (~valid_attrs).any():
             log.warning(
-                f"Some rows have a missing {height_column_name}! The following "
+                f"Some rows have a missing {height_column_name}! The "
+                f"following "
                 f"{(~valid_attrs).sum()} entries "
                 f"where ignored: {gdf.loc[~valid_attrs].index}"
             )
@@ -503,7 +504,8 @@ class UmiProject:
             )
         else:
             log.info(
-                f"{gdf.size} breps created in {time.time()-start_time:,.2f} seconds"
+                f"{gdf.size} breps created in "
+                f"{time.time() - start_time:,.2f} seconds"
             )
         gdf = gdf.loc[~errored_brep, :]
 
@@ -606,7 +608,8 @@ class UmiProject:
         # Second, update non-plottable settings
         _df = self.gdf_3dm.loc[
             :,
-            [attr for attr in nonplot_settings] + ["guid"],  # guid needed in sql
+            [attr for attr in nonplot_settings] + ["guid"],
+            # guid needed in sql
         ]
         _df = (
             (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
