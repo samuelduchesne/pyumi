@@ -7,6 +7,7 @@ import time
 import uuid
 from io import StringIO, TextIOWrapper
 from json import JSONDecodeError
+from sqlite3 import OperationalError
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
 
@@ -189,20 +190,22 @@ class UmiProject:
         # Initiate Layers in 3dm file
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
 
+        if isinstance(umi_sqlite, bytes):
+            with open(self.tmp / "umi.sqlite3", "wb") as f:
+                f.write(umi_sqlite)
+                umi_sqlite = None
         if umi_sqlite is None:
-            with connect(self.tmp / "umi.sqlite3") as con:
-                con.execute(create_nonplottable_setting)
-                con.execute(create_object_name_assignement)
-                con.execute(create_plottatble_setting)
-                con.execute(create_series)
-                con.execute(create_data_point)
+            con = connect(self.tmp / "umi.sqlite3")
         else:
-            with connect(Path(umi_sqlite).copy(self.tmp)) as con:
-                con.execute(create_nonplottable_setting)
-                con.execute(create_object_name_assignement)
-                con.execute(create_plottatble_setting)
-                con.execute(create_series)
-                con.execute(create_data_point)
+            con = connect(Path(umi_sqlite).copy(self.tmp))
+        try:
+            con.execute(create_nonplottable_setting)
+            con.execute(create_object_name_assignement)
+            con.execute(create_plottatble_setting)
+            con.execute(create_series)
+            con.execute(create_data_point)
+        except OperationalError:
+            pass  # tables already exist
 
         # Set ModelUnitSystem to Meters
         self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
@@ -714,7 +717,7 @@ class UmiProject:
             # 2. Parse the weather file as :class:`Epw`
             epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
             with umizip.open(epw_file) as f:
-                _str = TextIOWrapper(f, "utf-8")
+                _str = TextIOWrapper(f, "utf-8", newline="")
                 epw = Epw(_str)
 
             # 3. Parse the templates library.
@@ -726,7 +729,11 @@ class UmiProject:
             with umizip.open(tmp_lib) as f:
                 template_lib = json.load(f)
 
-            # 4. Parse all the .json files in "sdl-common" folder
+            # 4. make connection with umi.sqlite3
+            with umizip.open("umi.sqlite3") as f:
+                umi_sqlite3 = f.read()
+
+            # 5. Parse all the .json files in "sdl-common" folder
             sdl_common = {}  # prepare sdl_common dict
 
             # loop over 'sdl-common' config files (.json)
@@ -808,6 +815,7 @@ class UmiProject:
             to_crs=CRS.from_user_input(utm_crs),
             fid="id",
             sdl_common=sdl_common,
+            umi_sqlite=umi_sqlite3,
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
@@ -1394,19 +1402,13 @@ class Epw(epw):
 
     @name.setter
     def name(self, value):
-        self._name = Path(value).basename
+        if isinstance(value, TextIOWrapper):
+            self._name = value.name
+        elif isinstance(value, (str, Path)):
+            self._name = Path(value).basename()
 
     def as_str(self):
         """Returns Epw as a string"""
-        csvfile = StringIO()
-        csvwriter = csv.writer(
-            csvfile, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
-        )
-        for k, v in self.headers.items():
-            csvwriter.writerow([k] + v)
-        for row in self.dataframe.itertuples(index=False):
-            csvwriter.writerow(i for i in row)
-        csvfile.seek(0)
-        epw_str = csvfile.read()
-        csvfile.close()
-        return epw_str
+        # Todo: Epw, make sure modified string is returned. Needs parsing
+        #  fix of epw file
+        return self._epw_io
