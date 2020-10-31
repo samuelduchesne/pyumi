@@ -1422,18 +1422,45 @@ class EnergyModule:
     def __init__(self, umi_project):
         self._umi_project = umi_project
 
-    def results(self):
+    def _results(self):
         if self._df is None:
             con = self._umi_project.umi_sqlite3
-            self._df = pd.read_sql(sql="select * from ", con=con)
+            self._df = pd.read_sql(sql="select * from series", con=con)
         return self._df
 
     def _get_series(self):
+        """Retrieves energy results and saves them to the db"""
+        # First get the distinct set of (name, units, resolution).
         series_names = self._umi_project.umi_sqlite3.execute(
             """select distinct name, units, resolution from series"""
         )
+
+        # Then for each, retrieve DataFrame and create class attribute.
         for name, units, resolution, *_ in series_names:
             _name = re.sub(r"[^a-zA-Z0-9\n\.]", "_", name)  # valid name
-            # series_name = "_".join([resolution, _name, units])
-            # Todo: Read Series here
-            setattr(self, _name, None)
+            series_name = "_".join([resolution, _name]) if resolution else _name
+
+            # sql query: takes in a couple columns from the 'series' and
+            # joins in the data_point which contains the values and the
+            # object_name_assignment which contains the building names.
+            series = pd.read_sql(
+                """select object_id, 
+                index_in_series, ona.name, value from series 
+                join data_point dp on series.id = dp.series_id 
+                join object_name_assignment ona on series.object_id = ona.id 
+                where series.name = ? and series.resolution = ? and 
+                series.units = ?""",
+                con=self._umi_project.umi_sqlite3,
+                params=(name, resolution, units),
+            )
+            # Dataframe is pivoted so that index_in_series is the index,
+            # name is the column and value is the values. Since object_id is
+            # therefore aggregated (sum) under names (could have more than
+            # one object_id for the same 'name'
+            series = series.pivot_table(
+                index=["index_in_series"],
+                columns=["name"],
+                values=["value"],
+                aggfunc=sum,
+            )
+            setattr(self, series_name, series)
