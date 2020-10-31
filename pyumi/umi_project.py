@@ -1274,6 +1274,14 @@ class Epw(epw):
 
         self.name = path
 
+        if isinstance(path, (str, Path)):
+            path = open(path, newline="")
+        # if a TextIOWrapper, store the str
+        if isinstance(path, TextIOWrapper):
+            path.seek(0)
+            self._epw_io = path.read()
+            path.seek(0)
+
         try:
             path.close()
         except Exception:
