@@ -717,7 +717,7 @@ class UmiProject:
             # 2. Parse the weather file as :class:`Epw`
             epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
             with umizip.open(epw_file) as f:
-                _str = TextIOWrapper(f, "utf-8")
+                _str = TextIOWrapper(f, "utf-8", newline="")
                 epw = Epw(_str)
 
             # 3. Parse the templates library.
@@ -1283,6 +1283,12 @@ class Epw(epw):
 
         self.name = path
 
+        # if a TextIOWrapper, store the str
+        if isinstance(path, TextIOWrapper):
+            path.seek(0)
+            self._epw_io = path.read()
+            path.seek(0)
+
         try:
             path.close()
         except Exception:
@@ -1391,22 +1397,16 @@ class Epw(epw):
 
     @name.setter
     def name(self, value):
-        self._name = Path(value).basename
+        if isinstance(value, TextIOWrapper):
+            self._name = value.name
+        elif isinstance(value, (str, Path)):
+            self._name = Path(value).basename()
 
     def as_str(self):
         """Returns Epw as a string"""
-        csvfile = StringIO()
-        csvwriter = csv.writer(
-            csvfile, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
-        )
-        for k, v in self.headers.items():
-            csvwriter.writerow([k] + v)
-        for row in self.dataframe.itertuples(index=False):
-            csvwriter.writerow(i for i in row)
-        csvfile.seek(0)
-        epw_str = csvfile.read()
-        csvfile.close()
-        return epw_str
+        # Todo: Epw, make sure modified string is returned. Needs parsing
+        #  fix of epw file
+        return self._epw_io
 
 
 class EnergyModule:
