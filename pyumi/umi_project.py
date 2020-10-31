@@ -926,8 +926,9 @@ class UmiProject:
             # 5. Save GeoDataFrame to archive
             if not self.gdf_3dm.empty:
                 _json = self.gdf_3dm.to_json(cls=ComplexEncoder)
+                response = json.loads(_json)
                 gdf_3dm_archive = ZipInfo("sdl-common/project.json")
-                zip_archive.writestr(gdf_3dm_archive, json.dumps(_json))
+                zip_archive.writestr(gdf_3dm_archive, json.dumps(response))
 
             # 6. Commit sqlite3 db changes and copy to archive
             self.umi_sqlite3.commit()  # commit db changes
