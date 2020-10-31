@@ -758,9 +758,11 @@ class UmiProject:
                 else:
                     with umizip.open(file) as f:
                         try:
-                            sdl_common[Path(file).stem] = json.load(f)
+                            sdl_common[
+                                Path(file.filename.replace("\\", "/")).stem
+                            ] = json.load(f)
                         except JSONDecodeError:  # todo: deal with xml
-                            sdl_common[Path(file).stem] = {}
+                            sdl_common[Path(file.filename.replace("\\", "/")).stem] = {}
 
         # Before translating the geometries, resolve the
         # origin_unset value
@@ -926,7 +928,7 @@ class UmiProject:
 
             # 4. Save all the sdl-common objects to the archive
             for k, v in self.sdl_common.items():
-                k_archive = ZipInfo(f"sld-common/{k}")
+                k_archive = ZipInfo(f"sdl-common/{k}")
                 zip_archive.writestr(k_archive, json.dumps(v, indent=3))
 
             # 5. Save GeoDataFrame to archive
