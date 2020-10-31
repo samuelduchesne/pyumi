@@ -1288,6 +1288,8 @@ class Epw(epw):
 
         self.name = path
 
+        if isinstance(path, (str, Path)):
+            path = open(path, newline="")
         # if a TextIOWrapper, store the str
         if isinstance(path, TextIOWrapper):
             path.seek(0)
