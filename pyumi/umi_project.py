@@ -917,7 +917,7 @@ class UmiProject:
 
             # 4. Save all the sdl-common objects to the archive
             for k, v in self.sdl_common.items():
-                k_archive = ZipInfo(f"sdl-common/{k}")
+                k_archive = ZipInfo(f"sdl-common/{k}" + ".json")
                 zip_archive.writestr(k_archive, json.dumps(v, indent=3))
 
             # 5. Save GeoDataFrame to archive
