@@ -133,10 +133,12 @@ class TestUmiProjectOps:
             project_from_gis.export("a_folder/test_project.geojson")
 
     def test_open(self):
-        umi = UmiProject.open("tests/oshkosh_demo.umi")
+        umi = UmiProject.open("tests/oshkosh_demo.umi", fast_open=True)
 
     def test_open_with_origin_unset(self):
-        umi = UmiProject.open("tests/oshkosh_demo.umi", origin_unset=(0, 0))
+        umi = UmiProject.open(
+            "tests/oshkosh_demo.umi", origin_unset=(0, 0), fast_open=True
+        )
 
 
 class TestUmiLayers:

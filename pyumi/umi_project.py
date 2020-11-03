@@ -164,6 +164,7 @@ class UmiProject:
         umi_sqlite=None,
         fid="fid",
         sdl_common=None,
+        fast_open=False,
     ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -215,7 +216,8 @@ class UmiProject:
         self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
 
         self.umi_sqlite3 = con
-        self.energy._get_series()  # Construct series
+        if not fast_open:
+            self.energy._get_series()  # Construct series
 
     @property
     def epw(self):
@@ -678,7 +680,7 @@ class UmiProject:
         return self
 
     @classmethod
-    def open(cls, filename, origin_unset=None):
+    def open(cls, filename, origin_unset=None, fast_open=False):
         """Reads an UmiProject from file.
 
         Hint:
@@ -696,6 +698,8 @@ class UmiProject:
             >>> umi = UmiProject.open("tests/oshkosh_demo.umi")
 
         Args:
+            fast_open (bool): If True, speeds up open by not reading the
+                sqlite file.
             filename (str or Path): The filename to open.
             origin_unset (tuple): A tuple of (lat, lon) Used to move the
                 project to a known geographic location. This can be used to
@@ -821,6 +825,7 @@ class UmiProject:
             fid="id",
             sdl_common=sdl_common,
             umi_sqlite=umi_sqlite3,
+            fast_open=fast_open,
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
