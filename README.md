@@ -193,3 +193,52 @@ umi.export("project_name.json", driver="GeoJSON")
 
 In the future, other drivers will become available such as 
 [URBANopt™](https://docs.urbanopt.net/).
+
+
+### Analyzing Results
+
+#### Energy Module
+
+Results from the energy module can be analysed by calling the `energy` property
+. Autocompletion helps list possible time series:
+
+```python
+from pyumi.umi_project import UmiProject
+umi = UmiProject.open("tests/oshkosh_demo.umi")
+umi.energy
+```
+Should display:
+```shell script
+Available Series                     Totals
+---------------------------------  --------
+SDL_Energy_Total_Area                     0
+Hour_SDL_Cooling                     239728
+Hour_SDL_Domestic_Hot_Water          421267
+Hour_SDL_Equipment                   460975
+Hour_SDL_Heating                     833394
+Hour_SDL_Lighting                    612800
+Hour_SDL_Total_Operational_Energy   2568164
+Hour_SDL_Window_Radiation           2463248
+```
+
+Each series is returned as a DataFrame where each column is a building. If multiple rhino
+geometries are given the same building name, then these DataFrames report the aggregated
+values (sum) of each name.
+
+For example, `umi.energy.Hour_SDL_Heating` returns:
+
+```
+name                   0        10        11  ...   61         7         8
+2017-01-01 00:00:00  0.0  9.762815  8.631218  ...  0.0  6.584232  4.082195
+2017-01-01 01:00:00  0.0  8.875096  7.834453  ...  0.0  5.977587  3.701388
+2017-01-01 02:00:00  0.0  9.025306  7.944401  ...  0.0  6.074837  3.746451
+2017-01-01 03:00:00  0.0  9.105266  7.995787  ...  0.0  6.129568  3.767022
+2017-01-01 04:00:00  0.0  9.136625  8.008572  ...  0.0  6.153552  3.770450
+                  ...       ...       ...  ...  ...       ...       ...
+2017-12-31 19:00:00  0.0  2.739810  2.853194  ...  0.0  1.855790  1.399154
+2017-12-31 20:00:00  0.0  3.070990  3.182003  ...  0.0  2.031320  1.543346
+2017-12-31 21:00:00  0.0  3.780662  3.679383  ...  0.0  2.516818  1.771151
+2017-12-31 22:00:00  0.0  4.094682  3.857272  ...  0.0  2.748152  1.845514
+2017-12-31 23:00:00  0.0  4.957705  4.560792  ...  0.0  3.343510  2.173121
+[8760 rows x 55 columns]
+````

@@ -7,6 +7,7 @@ dependencies:
   - tqdm  # for progress bar
   - osmnx  # comes with all the geos stuff
   - ipykernel  # For Jupyter Notebooks
+  - tabulate  # for repr
   
   # code checks
   - isort>=5.2.1  # check that imports are in the right order
