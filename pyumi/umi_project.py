@@ -2,10 +2,11 @@ import csv
 import json
 import logging
 import math
+import re
 import tempfile
 import time
 import uuid
-from io import StringIO, TextIOWrapper
+from io import TextIOWrapper
 from json import JSONDecodeError
 from sqlite3 import OperationalError
 from sqlite3.dbapi2 import connect
@@ -20,6 +21,7 @@ from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
 from networkx import is_empty
 from osmnx import geometries_from_polygon, project_gdf, project_graph
+from pandas import date_range
 from path import Path
 from pyproj import CRS
 from rhino3dm import (
@@ -35,6 +37,7 @@ from rhino3dm import (
 )
 from rhino3dm._rhino3dm import UnitSystem
 from shapely.geometry.polygon import orient
+from tabulate import tabulate
 from tqdm import tqdm
 
 from pyumi.umi_layers import UmiLayers
@@ -161,6 +164,7 @@ class UmiProject:
         umi_sqlite=None,
         fid="fid",
         sdl_common=None,
+        fast_open=False,
     ):
         """An UmiProject package containing the _file3dm file, the project
         settings, the umi.sqlite3 database.
@@ -186,6 +190,7 @@ class UmiProject:
         self.file3dm = file3dm or File3dm()
         self.template_lib = template_lib
         self.epw = epw
+        self.energy = Energy(self)
 
         # Initiate Layers in 3dm file
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
@@ -211,6 +216,8 @@ class UmiProject:
         self.file3dm.Settings.ModelUnitSystem = UnitSystem.Meters
 
         self.umi_sqlite3 = con
+        if not fast_open:
+            self.energy._get_series()  # Construct series
 
     @property
     def epw(self):
@@ -673,7 +680,7 @@ class UmiProject:
         return self
 
     @classmethod
-    def open(cls, filename, origin_unset=None):
+    def open(cls, filename, origin_unset=None, fast_open=False):
         """Reads an UmiProject from file.
 
         Hint:
@@ -691,6 +698,8 @@ class UmiProject:
             >>> umi = UmiProject.open("tests/oshkosh_demo.umi")
 
         Args:
+            fast_open (bool): If True, speeds up open by not reading the
+                sqlite file.
             filename (str or Path): The filename to open.
             origin_unset (tuple): A tuple of (lat, lon) Used to move the
                 project to a known geographic location. This can be used to
@@ -816,6 +825,7 @@ class UmiProject:
             fid="id",
             sdl_common=sdl_common,
             umi_sqlite=umi_sqlite3,
+            fast_open=fast_open,
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
@@ -1412,3 +1422,76 @@ class Epw(epw):
         # Todo: Epw, make sure modified string is returned. Needs parsing
         #  fix of epw file
         return self._epw_io
+
+
+class Energy:
+    """Handles reporting energy results from the Energy Module"""
+
+    _umi_project: UmiProject
+
+    def __init__(self, umi_project):
+        self._umi_project = umi_project
+
+    def __repr__(self):
+        series = [key for key in self.__dict__.keys() if not key.startswith("_")]
+        totals = [(key, f"{getattr(self, key).sum().sum():.0f}") for key in series]
+        tab = tabulate(totals, ("Available Series", "Totals"))
+        return tab
+
+    def _results(self):
+        if self._df is None:
+            con = self._umi_project.umi_sqlite3
+            self._df = pd.read_sql(sql="select * from series", con=con)
+        return self._df
+
+    def _get_series(self):
+        """Retrieves energy results and saves them to the db"""
+        # First get the distinct set of (name, units, resolution).
+        series_names = self._umi_project.umi_sqlite3.execute(
+            """select distinct name, units, resolution from series"""
+        )
+
+        # Then for each, retrieve DataFrame and create class attribute.
+        for name, units, resolution, *_ in series_names:
+            _name = re.sub(r"[^a-zA-Z0-9\n\.]", "_", name)  # valid name
+            series_name = "_".join([resolution, _name]) if resolution else _name
+
+            # sql query: takes in a couple columns from the 'series' and
+            # joins in the data_point which contains the values and the
+            # object_name_assignment which contains the building names.
+            ts = pd.read_sql(
+                """select object_id, 
+                index_in_series, ona.name, value from series 
+                join data_point dp on series.id = dp.series_id 
+                join object_name_assignment ona on series.object_id = ona.id 
+                where series.name is ? and series.resolution is ? and 
+                series.units is ?""",
+                con=self._umi_project.umi_sqlite3,
+                params=(name, resolution, units),
+            )
+            # Dataframe is pivoted so that index_in_series is the index,
+            # name is the column and value is the values. Since object_id is
+            # therefore aggregated (sum) under names (could have more than
+            # one object_id for the same 'name'
+            ts = ts.pivot_table(
+                index=["index_in_series"],
+                columns=["name"],
+                values=["value"],
+                aggfunc=sum,
+            )
+            ts = ts.droplevel(0, axis=1)  # Drop the top level of
+            # column axis because it does not offer any info.
+
+            # create DatetimeIndex if time series
+            if ts.index.size >= 12:
+                # anything below would not be a time series
+                ts.index = date_range(
+                    start="2017-01-01",
+                    periods=ts.index.size,
+                    freq=resolution[0],  # take first letter of resolution
+                )
+
+                # Todo: Change start date based on fist day of week set in
+                #  Weather file
+
+            setattr(self, series_name, ts)
