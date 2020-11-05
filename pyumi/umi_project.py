@@ -1476,12 +1476,21 @@ class ThermalDiversity:
             vspace:
         """
         # First, create polygon grid
-        self.grid = self._create_point_grid(
+        self.grid_regions = self._create_point_grid(
             bbox=bbox, hspace=hspace, vspace=vspace, radius=radius
         )
 
-        # Then, calculate annual diversity for each grid polygons
-        self.grid["annual_diversity"] = self.grid.apply(
+        # Then, prepare
+        # Convert circles to grid cell (no overlap)
+        self.grid = self.grid_regions.copy()  # a copy of grid_regions
+        from shapely.geometry import box
+
+        self.grid.geometry = self.grid_regions.apply(
+            lambda x: box(*x.geometry.centroid.buffer(hspace / 2).bounds), axis=1
+        )  # half horizontal space
+
+        # Then, calculate annual diversity for each grid_regions circles
+        self.grid["annual_diversity"] = self.grid_regions.apply(
             self.diversity_within_geom,
             args=(
                 self._umi_project,
@@ -1492,12 +1501,6 @@ class ThermalDiversity:
             sto=sto,
             axis=1,
         )
-        from shapely.geometry import box
-
-        # Convert circles to grid cell (no overlap)
-        self.grid.geometry = self.grid.apply(
-            lambda x: box(*x.geometry.centroid.buffer(hspace / 2).bounds), axis=1
-        )
 
         # Creates gradient colors using cmap name
         if isinstance(cmap, str):
@@ -1505,7 +1508,7 @@ class ThermalDiversity:
 
             cmap = cm.get_cmap(cmap, 12)
 
-        self.grid["color"] = self.grid.annual_diversity.apply(
+        self.grid["color"] = self.grid["annual_diversity"].apply(
             lambda x: tuple(int(i * 255) for i in cmap(x))
         )
         return self.grid
