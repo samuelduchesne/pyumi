@@ -76,7 +76,7 @@ class UmiLayers:
             # Using accumulate() + join()
             temp = full_path.split(delimiter)
             res = list(accumulate(temp, lambda x, y: delimiter.join([x, y])))
-            parent_layer = None
+            parent_layer = Layer()
             for part in res:
                 if self.find_layer_from_fullpath(part):
                     parent_layer = self.find_layer_from_fullpath(part)
@@ -88,9 +88,10 @@ class UmiLayers:
                     if parent_layer:
                         _layer.ParentLayerId = parent_layer.Id  # Set parent Id
                     self._file3dm.Layers.Add(_layer)  # Add Layer
-                    _layer = self.find_layer_from_fullpath(part)
-                    if not parent_layer:
-                        parent_layer = _layer
+                    _layer = self._file3dm.Layers.FindName(name, parent_layer.Id)
+
+                    # set parent layer to this layer (for next iter)
+                    parent_layer = _layer
                     # Sets Layer as class attr
                     setattr(UmiLayers, _layer.FullPath, _layer)
             return _layer
