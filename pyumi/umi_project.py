@@ -710,7 +710,7 @@ class UmiProject:
             UmiProject: The loaded UmiProject
         """
         filename = Path(filename)
-        project_name = filename.stem
+        project_name = filename  # Keep path in project name (easier for save)
         # with unziped file load in the files
         with ZipFile(filename) as umizip:
             # 1. Read the 3dm file. Needs a temp directory because cannot be
@@ -910,19 +910,22 @@ class UmiProject:
         Returns:
             UmiProject: self
         """
-        dst = Path(".")  # set default destination as current directory
         if filename:  # a specific filename is passed
             dst = Path(filename).dirname()  # set dir path
-            self.name = Path(filename).stem  # update project name
+            self.name = Path(filename)  # update project name
+            name = Path(filename).stem
+        else:
+            dst = Path(self.name).dirname()
+            name = Path(self.name).stem
 
         # export needed class attributes to outfile
-        outfile = (dst / Path(self.name) + ".umi").expand()
+        outfile = (dst / name + ".umi").expand()
         with ZipFile(outfile, "w") as zip_archive:
 
             # 1. Save the file3dm object to the archive.
             if self.file3dm is not None:
-                self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
-                zip_archive.write(self.tmp / (self.name + ".3dm"), (self.name + ".3dm"))
+                self.file3dm.Write(self.tmp / (name + ".3dm"), 6)
+                zip_archive.write(self.tmp / (name + ".3dm"), (name + ".3dm"))
 
             # 2. Save the epw object to the archive
             if self.epw:
