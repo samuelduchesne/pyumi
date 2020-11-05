@@ -204,3 +204,15 @@ class TestUmiLayers:
     def test_get_layer_by_id_none(self, umi_project):
         id = uuid.uuid1()
         assert umi_project.umiLayers.find_layer_from_id(id) is None
+
+
+class TestUmiModules:
+    @pytest.fixture()
+    def umi_project(self):
+        yield UmiProject.open("tests/oshkosh_demo.umi")
+
+    def test_diveristy(self, umi_project):
+        umi_project.diversity.grid_thermal_diversity()
+        umi_project.diversity.grid_to_file3dm()
+
+        umi_project.save()

@@ -191,6 +191,7 @@ class UmiProject:
         self.template_lib = template_lib
         self.epw = epw
         self.energy = Energy(self)
+        self.diversity = ThermalDiversity(self)
 
         # Initiate Layers in 3dm file
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
@@ -1427,6 +1428,221 @@ class Epw(epw):
         # Todo: Epw, make sure modified string is returned. Needs parsing
         #  fix of epw file
         return self._epw_io
+
+
+class ThermalDiversity:
+    """Analyse thermal diversity"""
+
+    def __init__(
+        self,
+        umi_project,
+        hspace=100,
+        vspace=None,
+        radius=250,
+        cop_heating=3,
+        cop_cooling=4,
+        storage_hours=0,
+    ):
+        self._umi_project = umi_project
+
+        self.hspace = hspace
+        self.vspace = vspace or hspace
+        self.radius = radius
+        self.cop_heating = cop_heating
+        self.cop_cooling = cop_cooling
+        self.storage_hours = storage_hours
+
+    def grid_thermal_diversity(
+        self,
+        hspace=25,
+        radius=200,
+        bbox=None,
+        vspace=None,
+        cop_heating=3,
+        cop_cooling=5,
+        sto=None,
+        cmap="Reds",
+    ):
+        """Calculates thermal diversity on a grid cell spaced by `hspace` and
+        `vspace` with a reach of `radius` around each cell (circle). The grid
+        cell is created for the whole extent of the `data` or for a
+        specified bbox.
+
+        Args:
+            hspace:
+            radius:
+            data:
+            bbox:
+            vspace:
+        """
+        # First, create polygon grid
+        self.grid = self._create_point_grid(
+            bbox=bbox, hspace=hspace, vspace=vspace, radius=radius
+        )
+
+        # Then, calculate annual diversity for each grid polygons
+        self.grid["annual_diversity"] = self.grid.apply(
+            self.diversity_within_geom,
+            args=(
+                self._umi_project,
+                self._umi_project.gdf_3dm,
+            ),
+            cop_heating=cop_heating,
+            cop_cooling=cop_cooling,
+            sto=sto,
+            axis=1,
+        )
+        from shapely.geometry import box
+
+        # Convert circles to grid cell (no overlap)
+        self.grid.geometry = self.grid.apply(
+            lambda x: box(*x.geometry.centroid.buffer(hspace / 2).bounds), axis=1
+        )
+
+        # Creates gradient colors using cmap name
+        if isinstance(cmap, str):
+            from matplotlib import cm
+
+            cmap = cm.get_cmap(cmap, 12)
+
+        self.grid["color"] = self.grid.annual_diversity.apply(
+            lambda x: tuple(int(i * 255) for i in cmap(x))
+        )
+        return self.grid
+
+    @staticmethod
+    def diversity_within_geom(
+        series, umiproject, df, cop_heating=3, cop_cooling=5, sto=None
+    ):
+        """Calculate the Annual Thermal Diversity Index for features within
+        cells
+        """
+        within = df.loc[df.intersects(series.geometry), :]
+        if not within.empty:
+            heating = umiproject.energy.Hour_SDL_Heating.loc[:, within.Name]
+            cooling = umiproject.energy.Hour_SDL_Cooling.loc[:, within.Name]
+            dhw = umiproject.energy.Hour_SDL_Domestic_Hot_Water.loc[:, within.Name]
+            divf = ThermalDiversity.annual_diversity_factor(
+                within,
+                heating,
+                dhw,
+                cooling,
+                cop_heating=cop_heating,
+                cop_cooling=cop_cooling,
+                sto=sto,
+            )
+            return divf
+        else:
+            return np.NaN
+
+    @staticmethod
+    def annual_diversity_factor(
+        gdf,
+        heating_profile,
+        dhw_profile,
+        cooling_profile,
+        cop_heating=3,
+        cop_cooling=5,
+        sto=None,
+    ):
+        """Returns the annual diversity factor by calculating the hourly
+        diversity
+        factor and averaging over the year.
+
+        Args:
+            gdf:
+            heating_profile:
+            dhw_profile:
+            cooling_profile:
+            cop_heating:
+            cop_cooling:
+        """
+        # get total heating and cooling demand (sum of all features,
+        # element-wise), vector of shape (8760,)
+        total_heat_demand = heating_profile.sum(axis=1) + dhw_profile.sum(axis=1)
+        total_cool_demand = cooling_profile.sum(axis=1)
+        # If storage is to be modeled, do it here first
+        if sto:
+            total_heat_demand = (
+                pd.Series(total_heat_demand)
+                .rolling(sto, min_periods=0, center=True)
+                .mean()
+            )
+            total_cool_demand = (
+                pd.Series(total_cool_demand)
+                .rolling(sto, min_periods=0, center=True)
+                .mean()
+            )
+        # calculate total energy profile (heating + cooling) as seend by
+        # network.
+        q_cool_network = total_cool_demand * (1 + 1 / cop_heating)
+        q_heat_network = total_heat_demand * (1 - 1 / cop_cooling)
+        q_tot_network = q_cool_network + q_heat_network
+
+        div_i = 2 * (
+            1
+            - (q_cool_network / q_tot_network) ** 2
+            - (q_heat_network / q_tot_network) ** 2
+        )
+        div_i.fillna(0, inplace=True)
+        if q_tot_network.sum() == 0:
+            q_tot_network = None
+        return np.average(div_i, weights=q_tot_network)
+
+    def _create_point_grid(self, bbox=None, hspace=100, vspace=None, radius=0):
+        """Create a point grid over the total bounds of a GeoDataFrame.
+        Optionally pass a bbox object to limit the area.
+
+        Args:
+            gdf:
+            bbox:
+            hspace:
+            vspace:
+            radius:
+        """
+        from shapely.geometry import Point
+
+        if not vspace:
+            vspace = hspace
+        if bbox:
+            xmin, ymin, xmax, ymax = bbox.bounds
+        else:
+            xmin, ymin, xmax, ymax = self._umi_project.gdf_3dm.total_bounds
+
+        cols = list(range(int(np.floor(xmin)), int(np.ceil(xmax)) + hspace, hspace))
+        rows = list(range(int(np.floor(ymin)), int(np.ceil(ymax)) + vspace, vspace))
+        rows.reverse()
+
+        points = []
+        for x in cols:
+            for y in rows:
+                if radius != 0:
+                    points.append(Point(x, y).buffer(radius))
+                else:
+                    points.append(Point(x, y))
+
+        return GeoDataFrame({"geometry": points}).set_crs(self._umi_project.to_crs)
+
+    def grid_to_file3dm(self, on_layer="umi::Diversity::Grid"):
+        """Creates grid geometries to file3dm. Removes objects on layer
+        first"""
+        if isinstance(self.grid, GeoDataFrame):
+            # first remove objects on_layer
+            lyr = self._umi_project.umiLayers.find_layer_from_fullpath(on_layer)
+            for obj in self._umi_project.file3dm.Objects:
+                if obj.Attributes.LayerIndex == lyr.Index:
+                    self._umi_project.file3dm.Objects.Delete(obj)
+
+            tqdm.pandas(desc="Creating grid")
+            self.grid.progress_apply(
+                resolve_3dmgeom,
+                args=(
+                    self._umi_project.file3dm,
+                    self._umi_project.umiLayers.add_layer(on_layer),
+                    "annual_diversity",
+                ),
+                axis=1,
+            )
 
 
 class Energy:
