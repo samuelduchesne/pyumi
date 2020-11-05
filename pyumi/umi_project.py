@@ -35,7 +35,7 @@ from rhino3dm import (
     Point3dList,
     PolylineCurve,
 )
-from rhino3dm._rhino3dm import UnitSystem
+from rhino3dm._rhino3dm import UnitSystem, ObjectColorSource
 from shapely.geometry.polygon import orient
 from tabulate import tabulate
 from tqdm import tqdm
@@ -710,7 +710,7 @@ class UmiProject:
             UmiProject: The loaded UmiProject
         """
         filename = Path(filename)
-        project_name = filename.stem
+        project_name = filename  # Keep path in project name (easier for save)
         # with unziped file load in the files
         with ZipFile(filename) as umizip:
             # 1. Read the 3dm file. Needs a temp directory because cannot be
@@ -910,19 +910,22 @@ class UmiProject:
         Returns:
             UmiProject: self
         """
-        dst = Path(".")  # set default destination as current directory
         if filename:  # a specific filename is passed
             dst = Path(filename).dirname()  # set dir path
-            self.name = Path(filename).stem  # update project name
+            self.name = Path(filename)  # update project name
+            name = Path(filename).stem
+        else:
+            dst = Path(self.name).dirname()
+            name = Path(self.name).stem
 
         # export needed class attributes to outfile
-        outfile = (dst / Path(self.name) + ".umi").expand()
+        outfile = (dst / name + ".umi").expand()
         with ZipFile(outfile, "w") as zip_archive:
 
             # 1. Save the file3dm object to the archive.
             if self.file3dm is not None:
-                self.file3dm.Write(self.tmp / (self.name + ".3dm"), 6)
-                zip_archive.write(self.tmp / (self.name + ".3dm"), (self.name + ".3dm"))
+                self.file3dm.Write(self.tmp / (name + ".3dm"), 6)
+                zip_archive.write(self.tmp / (name + ".3dm"), (name + ".3dm"))
 
             # 2. Save the epw object to the archive
             if self.epw:
@@ -1065,20 +1068,14 @@ class UmiProject:
         tqdm.pandas(desc="Adding street nodes to file3dm")
         guids = gdf_nodes.progress_apply(
             resolve_3dmgeom,
-            args=(
-                self.file3dm,
-                on_file3dm_layer,
-            ),
+            args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
 
         tqdm.pandas(desc="Adding street edges to file3dm")
         guids = gdf_edges.progress_apply(
             resolve_3dmgeom,
-            args=(
-                self.file3dm,
-                on_file3dm_layer,
-            ),
+            args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
 
@@ -1154,10 +1151,7 @@ class UmiProject:
         tqdm.pandas(desc="Adding POIs to file3dm")
         guids = gdf.progress_apply(
             resolve_3dmgeom,
-            args=(
-                self.file3dm,
-                on_file3dm_layer,
-            ),
+            args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
 
@@ -1166,7 +1160,16 @@ class UmiProject:
         return self
 
 
-def resolve_3dmgeom(series, file3dm, on_file3dm_layer):
+def resolve_3dmgeom(series, file3dm, on_file3dm_layer, fid, **kwargs):
+    """resolve a :class:`GeoSeries` to a rhino3dm object
+
+    Args:
+        file3dm (File3dm): The File3dm object to build the geometry to.
+        on_file3dm_layer (Layer): The Layer object where the goemetry is
+            created.
+        fid (str): The attribute name containing the name (or id) of the
+            geometry.
+    """
     geom = series.geometry  # Get the geometry
     if isinstance(geom, shapely.geometry.Point):
         # if geom is a Point
@@ -1182,8 +1185,9 @@ def resolve_3dmgeom(series, file3dm, on_file3dm_layer):
         # Set the pois attributes
         geom3dm_attr = ObjectAttributes()
         geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-        geom3dm_attr.Name = str(series.osmid)
-        geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+        geom3dm_attr.Name = str(getattr(series, fid, ""))
+        geom3dm_attr.ObjectColor = getattr(series, "color", (205, 247, 201, 255))
+        geom3dm_attr.ColorSource = ObjectColorSource.ColorFromObject
 
         guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
         return guid
@@ -1194,8 +1198,9 @@ def resolve_3dmgeom(series, file3dm, on_file3dm_layer):
             # Set the pois attributes
             geom3dm_attr = ObjectAttributes()
             geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-            geom3dm_attr.Name = str(series.osmid)
-            geom3dm_attr.ObjectColor = (205, 247, 201, 255)
+            geom3dm_attr.Name = str(getattr(series, fid, ""))
+            geom3dm_attr.ObjectColor = getattr(series, "color", (205, 247, 201, 255))
+            geom3dm_attr.ColorSource = ObjectColorSource.ColorFromObject
 
             guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
         return guid
@@ -1203,13 +1208,13 @@ def resolve_3dmgeom(series, file3dm, on_file3dm_layer):
         geom3dm = _linestring_to_curve(geom)
         geom3dm_attr = ObjectAttributes()
         geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-        geom3dm_attr.Name = str(series.osmid)
+        geom3dm_attr.Name = str(getattr(series, fid, ""))
 
         guid = file3dm.Objects.AddCurve(geom3dm, geom3dm_attr)
         return guid
     else:
         raise NotImplementedError(
-            f"osmnx: geometry (osmid={series.osmid}) of type "
+            f"geometry ({fid}={getattr(series, fid)}) of type "
             f"{type(geom)} cannot be parsed as a rhino3dm object"
         )
 

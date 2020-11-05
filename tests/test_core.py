@@ -57,7 +57,7 @@ class TestUmiProject:
         umi.save(projectName)
 
         # assert the name has changed
-        assert umi.name == Path(projectName).stem
+        assert umi.name == projectName
 
     @pytest.mark.parametrize(
         "multi_attributes, map_to_column",
