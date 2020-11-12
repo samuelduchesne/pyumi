@@ -4,3 +4,13 @@ tqdm
 path
 rhino3dm
 osmnx
+ipykernel
+tabulate
+isort
+black
+sphinx
+pytest
+pytest-cov
+pytest-xdist
+yappi
+coverage
