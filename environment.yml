@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   # required
-  - python>=3.7
+  - python==3.7  # 3.7 required by rhino3dm
   - tqdm  # for progress bar
   - osmnx  # comes with all the geos stuff
   - ipykernel  # For Jupyter Notebooks

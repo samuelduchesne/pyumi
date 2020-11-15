@@ -1,8 +1,4 @@
-geopandas
-pytest
 tqdm
-path
-rhino3dm
 osmnx
 ipykernel
 tabulate
@@ -14,3 +10,5 @@ pytest-cov
 pytest-xdist
 yappi
 coverage
+path
+rhino3dm
