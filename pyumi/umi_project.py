@@ -24,102 +24,18 @@ from osmnx import geometries_from_polygon, project_gdf, project_graph
 from pandas import date_range
 from path import Path
 from pyproj import CRS
-from rhino3dm import (
-    Brep,
-    Extrusion,
-    File3dm,
-    Line,
-    ObjectAttributes,
-    Plane,
-    Point3d,
-    Point3dList,
-    PolylineCurve,
-)
-from rhino3dm._rhino3dm import UnitSystem, ObjectColorSource
+from rhino3dm import Brep, File3dm, Point3d, Point3dList, PolylineCurve
+from rhino3dm._rhino3dm import UnitSystem
 from shapely.geometry.polygon import orient
 from tabulate import tabulate
 from tqdm import tqdm
 
+from pyumi.geom_ops import geom_to_brep, resolve_3dm_geom
 from pyumi.umi_layers import UmiLayers
 
 # create logger
 PYUMI_DRIVERS = []  # Todo: Specify future output formats here.
 log = logging.getLogger("pyumi.UmiProject")
-
-
-def geom_to_curve(feature):
-    """Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
-
-    Args:
-        feature (GeoSeries):
-
-    Returns:
-        PolylineCurve
-    """
-
-    return PolylineCurve(
-        Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
-    )
-
-
-def geom_to_brep(feature, height_column_name):
-    """Converts the Shapely :class:`shapely.geometry.base.BaseGeometry` to
-    a :class:`_file3dm.Brep`.
-
-    Args:
-        feature (GeoSeries): A GeoSeries containing a `geometry` column.
-        height_column_name (str): Name of the column containing the height
-            attribute.
-
-    Returns:
-        Brep: The Brep
-    """
-    # Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
-    feature.geometry = orient(feature.geometry, sign=1.0)
-    height = feature[height_column_name]
-
-    outerProfile = PolylineCurve(
-        Point3dList([Point3d(x, y, 0) for x, y, *z in feature.geometry.exterior.coords])
-    )
-    innerProfiles = []
-    for interior in feature.geometry.interiors:
-        innerProfiles.append(
-            PolylineCurve(
-                Point3dList([Point3d(x, y, 0) for x, y, *z in interior.coords[::1]])
-            )
-        )
-
-    if outerProfile is None or height <= 1e-12:
-        return np.NaN
-
-    plane = Plane.WorldXY()
-    if not plane:
-        return np.NaN
-
-    path = Line(Point3d(0, 0, 0), Point3d(0, 0, height))
-    if not path.IsValid or path.Length <= 1e-12:
-        return np.NaN
-
-    up = plane.YAxis
-    curve = outerProfile.Duplicate()
-    curve.ChangeDimension(2)
-
-    extrusion = Extrusion()  # Initialize the Extrusion
-    extrusion.SetOuterProfile(curve, True)  # Sets the outer profile
-
-    # Sets the inner profiles, if they exist
-    for profile in innerProfiles:
-        curve = profile.Duplicate()
-        curve.ChangeDimension(2)
-        extrusion.AddInnerProfile(curve)
-
-    # Set Path and Up
-    extrusion.SetPathAndUp(path.From, path.To, up)
-
-    # Transform extrusion to Brep
-    brep = extrusion.ToBrep(False)
-
-    return brep
 
 
 class UmiProject:
@@ -375,9 +291,10 @@ class UmiProject:
                 raise NotImplementedError("5 levels or more are not yet supported")
 
         _index = gdf.index
-        gdf = gdf.set_index(map_to_column).join(
-            on_frame(map_to_column, template_map), on=map_to_column
-        )
+        if map_to_column:
+            gdf = gdf.set_index(map_to_column).join(
+                on_frame(map_to_column, template_map), on=map_to_column
+            )
         gdf.index = _index
 
         umi_project = cls.from_gdf(
@@ -497,7 +414,8 @@ class UmiProject:
                 if obj:
                     return obj.Geometry
             else:
-                return geom_to_brep(series, height_column_name)
+                height = series[height_column_name]
+                return geom_to_brep(series.geometry, height)
 
         gdf["rhino_geom"] = gdf.progress_apply(
             try_make_geom, args=(height_column_name,), axis=1
@@ -569,13 +487,13 @@ class UmiProject:
                 ].Index
             obj3dm.Attributes.Name = str(series[fid])
 
-        # Move Breps to layers (Buildings or Shading)
-        tqdm.pandas(desc="Moving Breps on layers")
-        gdf.progress_apply(move_to_layer, axis=1)
-
         umi_project.add_default_shoebox_settings()
 
         umi_project.update_umi_sqlite3()
+
+        # Move Breps to layers (Buildings or Shading)
+        tqdm.pandas(desc="Moving Breps on layers")
+        umi_project.gdf_3dm.progress_apply(move_to_layer, axis=1)
 
         return umi_project
 
@@ -632,7 +550,7 @@ class UmiProject:
             index_label="key",
             con=self.umi_sqlite3,
             if_exists="replace",
-            method="multi",
+            # method="multi",
         )  # write to sql, replace existing
         return self
 
@@ -1067,14 +985,14 @@ class UmiProject:
 
         tqdm.pandas(desc="Adding street nodes to file3dm")
         guids = gdf_nodes.progress_apply(
-            resolve_3dmgeom,
+            resolve_3dm_geom,
             args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
 
         tqdm.pandas(desc="Adding street edges to file3dm")
         guids = gdf_edges.progress_apply(
-            resolve_3dmgeom,
+            resolve_3dm_geom,
             args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
@@ -1150,7 +1068,7 @@ class UmiProject:
 
         tqdm.pandas(desc="Adding POIs to file3dm")
         guids = gdf.progress_apply(
-            resolve_3dmgeom,
+            resolve_3dm_geom,
             args=(self.file3dm, on_file3dm_layer, "osmid"),
             axis=1,
         )
@@ -1158,83 +1076,6 @@ class UmiProject:
         # todo: Add generated guids somewhere for reference
 
         return self
-
-
-def resolve_3dmgeom(series, file3dm, on_file3dm_layer, fid, **kwargs):
-    """resolve a :class:`GeoSeries` to a rhino3dm object
-
-    Args:
-        file3dm (File3dm): The File3dm object to build the geometry to.
-        on_file3dm_layer (Layer): The Layer object where the goemetry is
-            created.
-        fid (str): The attribute name containing the name (or id) of the
-            geometry.
-    """
-    geom = series.geometry  # Get the geometry
-    if isinstance(geom, shapely.geometry.Point):
-        # if geom is a Point
-        guid = file3dm.Objects.AddPoint(geom.x, geom.y, 0)
-        geom3dm = file3dm.Objects.FindId(guid)
-        geom3dm.Attributes.LayerIndex = on_file3dm_layer.Index
-        geom3dm.Attributes.Name = str(series.osmid)
-        return guid
-    elif isinstance(geom, shapely.geometry.Polygon):
-        # if geom is a Polygon
-        geom3dm = _poygon_to_brep(geom)
-
-        # Set the pois attributes
-        geom3dm_attr = ObjectAttributes()
-        geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-        geom3dm_attr.Name = str(getattr(series, fid, ""))
-        geom3dm_attr.ObjectColor = getattr(series, "color", (205, 247, 201, 255))
-        geom3dm_attr.ColorSource = ObjectColorSource.ColorFromObject
-
-        guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
-        return guid
-    elif isinstance(geom, shapely.geometry.MultiPolygon):
-        # if geom is a MultiPolygon, iterate over as polygon
-        for polygon in geom:
-            geom3dm = _poygon_to_brep(polygon)
-            # Set the pois attributes
-            geom3dm_attr = ObjectAttributes()
-            geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-            geom3dm_attr.Name = str(getattr(series, fid, ""))
-            geom3dm_attr.ObjectColor = getattr(series, "color", (205, 247, 201, 255))
-            geom3dm_attr.ColorSource = ObjectColorSource.ColorFromObject
-
-            guid = file3dm.Objects.AddBrep(geom3dm, geom3dm_attr)
-        return guid
-    elif isinstance(geom, shapely.geometry.linestring.LineString):
-        geom3dm = _linestring_to_curve(geom)
-        geom3dm_attr = ObjectAttributes()
-        geom3dm_attr.LayerIndex = on_file3dm_layer.Index
-        geom3dm_attr.Name = str(getattr(series, fid, ""))
-
-        guid = file3dm.Objects.AddCurve(geom3dm, geom3dm_attr)
-        return guid
-    else:
-        raise NotImplementedError(
-            f"geometry ({fid}={getattr(series, fid)}) of type "
-            f"{type(geom)} cannot be parsed as a rhino3dm object"
-        )
-
-
-def _linestring_to_curve(geom):
-    geom3dm = PolylineCurve(Point3dList([Point3d(x, y, 0) for x, y, *z in geom.coords]))
-    return geom3dm
-
-
-def _poygon_to_brep(geom):
-    polycurve = PolylineCurve(
-        Point3dList([Point3d(x, y, 0) for x, y, *z in geom.exterior.coords])
-    )
-    # This is somewhat of a hack. The surface is created by
-    # trimming the WorldXY plane to a PolylineCurve.
-    geom3dm = Brep.CreateTrimmedPlane(
-        Plane.WorldXY(),
-        polycurve,
-    )
-    return geom3dm
 
 
 create_nonplottable_setting = """create table nonplottable_setting
