@@ -1,6 +1,14 @@
-geopandas
-pytest
 tqdm
+osmnx
+ipykernel
+tabulate
+isort
+black
+sphinx
+pytest
+pytest-cov
+pytest-xdist
+yappi
+coverage
 path
 rhino3dm
-osmnx
