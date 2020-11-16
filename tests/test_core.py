@@ -4,7 +4,10 @@ import uuid
 import pytest
 from fiona.errors import DriverError
 from path import Path
+from rhino3dm import Brep, File3dm
+from shapely.geometry import MultiPolygon, Polygon
 
+from pyumi.geom_ops import geom_to_brep
 from pyumi.umi_project import UmiProject
 
 
@@ -82,6 +85,45 @@ class TestUmiProject:
         )
         # save UmiProject to created package.
         umi.save()
+
+
+class TestGeom:
+    """Testing related to geometry conversion between shapely and rhino3dm"""
+
+    @pytest.fixture()
+    def file3dm(self):
+        yield File3dm()
+
+    @pytest.fixture()
+    def multipolygon_with_hole(self):
+        # From coordinate tuples
+        geom = MultiPolygon(
+            [
+                (
+                    ((0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)),
+                    [((0.25, 0.25), (0.25, 0.5), (0.5, 0.5), (0.5, 0.25))],
+                )
+            ]
+        )
+        yield geom
+
+    @pytest.fixture()
+    def polygon_with_hole(self):
+        geom = Polygon(
+            shell=((0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)),
+            holes=[((0.25, 0.25), (0.25, 0.5), (0.5, 0.5), (0.5, 0.25))],
+        )
+        yield geom
+
+    def test_multipolygon(self, multipolygon_with_hole):
+        rhino3dm_geom = geom_to_brep(multipolygon_with_hole, 1)
+        assert isinstance(rhino3dm_geom, Brep)
+
+        assert rhino3dm_geom.IsSolid is True
+
+    def test_polygon(self, polygon_with_hole):
+        rhino3dm_geom = geom_to_brep(polygon_with_hole, 0)
+        assert isinstance(rhino3dm_geom, Brep)
 
 
 class TestUmiProjectOps:
