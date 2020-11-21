@@ -86,6 +86,10 @@ class TestUmiProject:
         # save UmiProject to created package.
         umi.save()
 
+    def test_from_cityjson(self):
+        """TODO: Create test for cityjson to umi project"""
+        pass
+
 
 class TestGeom:
     """Testing related to geometry conversion between shapely and rhino3dm"""

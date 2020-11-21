@@ -497,6 +497,43 @@ class UmiProject:
 
         return umi_project
 
+    @classmethod
+    def from_cityjson(
+        cls,
+        input_file,
+        height_column_name,
+        epw,
+        template_lib,
+        template_map,
+        map_to_column,
+        fid=None,
+        to_crs=None,
+        **kwargs,
+    ):
+        """
+
+        Args:
+            input_file (path_or_buffer): cityjson buffer or path.
+            height_column_name:
+            epw:
+            template_lib:
+            template_map:
+            map_to_column:
+            fid:
+            to_crs:
+            **kwargs:
+
+        Todo (@jszczesniak):
+            - Complete Tests in tests.test_core.TestUmiProject.test_from_cityjson
+            - Document method parameters following Google style docstrings: `pyguide`_
+
+        Returns:
+
+        .. _pyguide:
+            https://google.github.io/styleguide/pyguide.html
+        """
+        pass
+
     def update_umi_sqlite3(self):
         """Updates the self.umi_sqlite3 with self.gdf_3dm
 
