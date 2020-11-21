@@ -223,7 +223,8 @@ class TestUmiLayers:
         umi_project.umiLayers.add_layer("umi::Context::Amenities")
 
         assert (
-            umi_project.umiLayers.find_layer_from_name("Amenities").Name == "Amenities"
+            umi_project.umiLayers.find_layer_from_name("Amenities").Name
+            == "Amenities"
         )
 
     def test_get_layer_by_name_none(self, umi_project):
@@ -231,7 +232,9 @@ class TestUmiLayers:
         name = "A later that does not exist"
         assert umi_project.umiLayers.find_layer_from_name(name) is None
 
-    def test_get_layer_by_name_raises_error_if_more_than_one(self, umi_project):
+    def test_get_layer_by_name_raises_error_if_more_than_one(
+        self, umi_project
+    ):
         umi_project.umiLayers.add_layer("umi::Context::Amenities")
         umi_project.umiLayers.add_layer("umi::Buildings::Amenities")
 
@@ -241,7 +244,10 @@ class TestUmiLayers:
     def test_get_layer_by_id(self, umi_project):
         a_layer = umi_project.file3dm.Layers[0]
 
-        assert umi_project.umiLayers.find_layer_from_id(a_layer.Id).Id == a_layer.Id
+        assert (
+            umi_project.umiLayers.find_layer_from_id(a_layer.Id).Id
+            == a_layer.Id
+        )
 
     def test_get_layer_by_id_none(self, umi_project):
         id = uuid.uuid1()

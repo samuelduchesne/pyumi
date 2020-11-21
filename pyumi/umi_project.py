@@ -97,7 +97,9 @@ class UmiProject:
         self.to_crs = to_crs
         self.gdf_world = gdf_world if gdf_world is not None else GeoDataFrame()
         self.gdf_world_projected = (
-            gdf_world_projected if gdf_world_projected is not None else GeoDataFrame()
+            gdf_world_projected
+            if gdf_world_projected is not None
+            else GeoDataFrame()
         )
         self.gdf_3dm = gdf_3dm if gdf_3dm is not None else GeoDataFrame()
         self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
@@ -288,7 +290,9 @@ class UmiProject:
                     .to_frame()
                 )
             else:
-                raise NotImplementedError("5 levels or more are not yet supported")
+                raise NotImplementedError(
+                    "5 levels or more are not yet supported"
+                )
 
         _index = gdf.index
         if map_to_column:
@@ -439,7 +443,9 @@ class UmiProject:
 
         # rename the user-defined template_column_name to the
         # umi one ("TemplateName")
-        gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
+        gdf.rename(
+            columns={template_column_name: "TemplateName"}, inplace=True
+        )
 
         # create the UmiProject object
         umi_project = cls(
@@ -454,7 +460,11 @@ class UmiProject:
 
         # Todo: Complete origin_unset stuff here
         umi_project.sdl_common.update(
-            {"project-settings": {"origin_unset": (world_centroid.x, world_centroid.y)}}
+            {
+                "project-settings": {
+                    "origin_unset": (world_centroid.x, world_centroid.y)
+                }
+            }
         )
 
         # Add all Breps to Model and append UUIDs to gdf
@@ -466,7 +476,9 @@ class UmiProject:
                 if obj:
                     return obj.Attributes.Id
             else:
-                return umi_project.file3dm.Objects.AddBrep(series["rhino_geom"])
+                return umi_project.file3dm.Objects.AddBrep(
+                    series["rhino_geom"]
+                )
 
         gdf["guid"] = gdf.progress_apply(try_add, axis=1)
         gdf.drop(columns=["rhino_geom"], inplace=True)  # don't carry around
@@ -520,7 +532,11 @@ class UmiProject:
             + ["guid"],  # guid needed in sql
         ]
         _df = (
-            (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
+            (
+                _df.melt("guid", var_name="name").rename(
+                    columns={"guid": "object_id"}
+                )
+            )
             .astype({"object_id": "str"})
             .dropna(subset=["value"])
         )
@@ -540,7 +556,11 @@ class UmiProject:
             # guid needed in sql
         ]
         _df = (
-            (_df.melt("guid", var_name="name").rename(columns={"guid": "object_id"}))
+            (
+                _df.melt("guid", var_name="name").rename(
+                    columns={"guid": "object_id"}
+                )
+            )
             .astype({"object_id": "str"})
             .dropna(subset=["value"])
         )
@@ -589,7 +609,9 @@ class UmiProject:
             )
         )
         guid = self.file3dm.Objects.AddCurve(boundary)
-        fileObj, *_ = filter(lambda x: x.Attributes.Id == guid, self.file3dm.Objects)
+        fileObj, *_ = filter(
+            lambda x: x.Attributes.Id == guid, self.file3dm.Objects
+        )
         fileObj.Attributes.LayerIndex = self.umiLayers[
             "umi::Context::Site boundary"
         ].Index
@@ -642,7 +664,9 @@ class UmiProject:
                 file3dm = File3dm.Read(Path(tempdir) / file3dm)
 
             # 2. Parse the weather file as :class:`Epw`
-            epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
+            epw_file, *_ = (
+                file for file in umizip.namelist() if ".epw" in file
+            )
             with umizip.open(epw_file) as f:
                 _str = TextIOWrapper(f, "utf-8", newline="")
                 epw = Epw(_str)
@@ -665,7 +689,9 @@ class UmiProject:
 
             # loop over 'sdl-common' config files (.json)
             for file in [
-                file for file in umizip.infolist() if "sdl-common" in file.filename
+                file
+                for file in umizip.infolist()
+                if "sdl-common" in file.filename
             ]:
                 if file.filename.endswith("project.json"):
                     # This is the geojson representaiton of the
@@ -689,14 +715,18 @@ class UmiProject:
                                 Path(file.filename.replace("\\", "/")).stem
                             ] = json.load(f)
                         except JSONDecodeError:  # todo: deal with xml
-                            sdl_common[Path(file.filename.replace("\\", "/")).stem] = {}
+                            sdl_common[
+                                Path(file.filename.replace("\\", "/")).stem
+                            ] = {}
 
         # Before translating the geometries, resolve the
         # origin_unset value
         try:
             # First, look in project-settings
             xoff, yoff = sdl_common["project-settings"]["origin_unset"]
-            log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
+            log.debug(
+                f"origin-unset of {xoff}, {yoff} read from project-settings"
+            )
         except KeyError:
             # Not defined in project-settings
             if origin_unset is None:
@@ -724,7 +754,9 @@ class UmiProject:
             xoff, yoff = origin_unset.x, origin_unset.y
 
         gdf_world_projected = gdf_3dm.copy()
-        gdf_world_projected.geometry = gdf_world_projected.translate(xoff, yoff)
+        gdf_world_projected.geometry = gdf_world_projected.translate(
+            xoff, yoff
+        )
 
         gdf_world = project_gdf(gdf_world_projected, to_latlong=True)
 
@@ -746,7 +778,9 @@ class UmiProject:
             fast_open=fast_open,
         )
 
-    def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
+    def export(
+        self, filename, driver="GeoJSON", schema=None, index=None, **kwargs
+    ):
         """Write the ``UmiProject`` to another file format. The
         :attr:`UmiProject.gdf_3dm` is first translated back to the
         :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
@@ -959,13 +993,17 @@ class UmiProject:
             custom_filter,
         )
         if is_empty(self.street_graph):
-            log.warning("No street graph found for location. Check your projection")
+            log.warning(
+                "No street graph found for location. Check your projection"
+            )
             return self
         # Project to UmiProject crs
         street_graph = project_graph(self.street_graph, self.to_crs)
 
         # Convert graph to edges with geom info (GeoDataFrame)
-        gdf_nodes, gdf_edges = ox.graph_to_gdfs(street_graph, nodes=True, edges=True)
+        gdf_nodes, gdf_edges = ox.graph_to_gdfs(
+            street_graph, nodes=True, edges=True
+        )
 
         # Move to 3dm origin
         gdf_edges.geometry = gdf_edges.translate(
@@ -1279,8 +1317,12 @@ class Energy:
         self._umi_project = umi_project
 
     def __repr__(self):
-        series = [key for key in self.__dict__.keys() if not key.startswith("_")]
-        totals = [(key, f"{getattr(self, key).sum().sum():.0f}") for key in series]
+        series = [
+            key for key in self.__dict__.keys() if not key.startswith("_")
+        ]
+        totals = [
+            (key, f"{getattr(self, key).sum().sum():.0f}") for key in series
+        ]
         tab = tabulate(totals, ("Available Series", "Totals"))
         return tab
 
@@ -1300,7 +1342,9 @@ class Energy:
         # Then for each, retrieve DataFrame and create class attribute.
         for name, units, resolution, *_ in series_names:
             _name = re.sub(r"[^a-zA-Z0-9\n\.]", "_", name)  # valid name
-            series_name = "_".join([resolution, _name]) if resolution else _name
+            series_name = (
+                "_".join([resolution, _name]) if resolution else _name
+            )
 
             # sql query: takes in a couple columns from the 'series' and
             # joins in the data_point which contains the values and the

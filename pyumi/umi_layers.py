@@ -41,9 +41,9 @@ class UmiLayers:
         for layer_name in UmiLayers._base_layers:
             layer = self.add_layer(layer_name)
             # Try Sets Layers as class attr
-            layer.Color = UmiLayers._base_layers.get(layer.FullPath, (0, 0, 0, 255))[
-                "Color"
-            ]
+            layer.Color = UmiLayers._base_layers.get(
+                layer.FullPath, (0, 0, 0, 255)
+            )["Color"]
 
     def add_layer(self, full_path, delimiter="::"):
         """Adds a layer to the file3dm. Sub-layers can be specified using a
@@ -88,7 +88,9 @@ class UmiLayers:
                     if parent_layer:
                         _layer.ParentLayerId = parent_layer.Id  # Set parent Id
                     self._file3dm.Layers.Add(_layer)  # Add Layer
-                    _layer = self._file3dm.Layers.FindName(name, parent_layer.Id)
+                    _layer = self._file3dm.Layers.FindName(
+                        name, parent_layer.Id
+                    )
 
                     # set parent layer to this layer (for next iter)
                     parent_layer = _layer
@@ -105,7 +107,9 @@ class UmiLayers:
 
     def find_layer_from_name(self, name):
         try:
-            _first, *others = filter(lambda x: x.Name == name, self._file3dm.Layers)
+            _first, *others = filter(
+                lambda x: x.Name == name, self._file3dm.Layers
+            )
             if others:
                 raise ReferenceError(
                     "There are more than one layers with " f"the name '{name}'"
@@ -116,7 +120,9 @@ class UmiLayers:
 
     def find_layer_from_fullpath(self, full_path):
         try:
-            _layer, *_ = filter(lambda x: x.FullPath == full_path, self._file3dm.Layers)
+            _layer, *_ = filter(
+                lambda x: x.FullPath == full_path, self._file3dm.Layers
+            )
             return _layer
         except ValueError:
             return None
