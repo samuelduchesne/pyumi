@@ -29,3 +29,4 @@ dependencies:
     - path  # pathlib wrapper
     - rhino3dm  # duh
     - git+https://github.com/building-energy/epw.git#egg=epw  # for parsing epw files
+    - cjio  # Reading CityJson
