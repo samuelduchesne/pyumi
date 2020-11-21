@@ -1,10 +1,15 @@
+"""Module to handle layers common to Umi projects and rhino3dm files."""
+
 from itertools import accumulate
 
-from rhino3dm import *
+from rhino3dm import File3dm, Layer
 
 
 class UmiLayers:
-    """Handles creation of :class:`rhino3dm.Layer` for umi projects"""
+    """UmiLayers Class.
+
+    Handle creation of :class:`rhino3dm.Layer` for umi projects.
+    """
 
     _base_layers = {
         "umi::Buildings": {"Color": (0, 0, 0, 255)},
@@ -20,20 +25,31 @@ class UmiLayers:
     _file3dm = None
 
     @classmethod
-    def __getitem__(cls, x):
-        return getattr(cls, x)
+    def __getitem__(cls, layer_name):
+        """Get record by index name.
 
-    def __init__(self, file3dm):
-        """Initializes the UmiLayer Class.
+        Args:
+            layer_name (str): The layer name.
+
+        Returns:
+            Layer: The Layer object.
+
+        Examples:
+            >>> UmiLayers["umi::Context::Streets"]
+        """
+        return getattr(cls, layer_name)
+
+    def __init__(self, file3dm=None):
+        """Initialize the UmiLayer Class.
 
         Args:
             file3dm (File3dm): The File3dm onto which this class is attached
         """
-        self._file3dm = file3dm
+        self._file3dm = file3dm or File3dm()
 
         # Loop over layers in the file3dm and add them as classattributes
         # with their full name
-        for layer in file3dm.Layers:
+        for layer in self._file3dm.Layers:
             setattr(UmiLayers, layer.FullPath, layer)
 
         # Loop over predefined umi layers, add them (if they don't exist) and
@@ -41,16 +57,17 @@ class UmiLayers:
         for layer_name in UmiLayers._base_layers:
             layer = self.add_layer(layer_name)
             # Try Sets Layers as class attr
-            layer.Color = UmiLayers._base_layers.get(
-                layer.FullPath, (0, 0, 0, 255)
-            )["Color"]
+            layer.Color = UmiLayers._base_layers.get(layer.FullPath, (0, 0, 0, 255))[
+                "Color"
+            ]
 
     def add_layer(self, full_path, delimiter="::"):
-        """Adds a layer to the file3dm. Sub-layers can be specified using a
-        names separated by a delimiter. For example,
-        "umi::Context::Street" creates the *Street* layer but also creates the
-        *Context* layer and the umi layer if they don't exist. If a layer
-        already exists it is simply returned.
+        """Add a layer to  self.file3dm.
+
+        Sub-layers can be specified using a names separated by a delimiter.
+        For example, "umi::Context::Street" creates the *Street* layer but
+        also creates the *Context* layer and the umi layer if they don't
+        exist. If a layer already exists it is simply returned.
 
         Args:
             full_path (str): the layer name. For sub-layers, parent layers
@@ -88,9 +105,7 @@ class UmiLayers:
                     if parent_layer:
                         _layer.ParentLayerId = parent_layer.Id  # Set parent Id
                     self._file3dm.Layers.Add(_layer)  # Add Layer
-                    _layer = self._file3dm.Layers.FindName(
-                        name, parent_layer.Id
-                    )
+                    _layer = self._file3dm.Layers.FindName(name, parent_layer.Id)
 
                     # set parent layer to this layer (for next iter)
                     parent_layer = _layer
@@ -99,6 +114,7 @@ class UmiLayers:
             return _layer
 
     def find_layer_from_id(self, id):
+        """Find layer from Guid."""
         try:
             _layer, *_ = filter(lambda x: x.Id == id, self._file3dm.Layers)
             return _layer
@@ -106,10 +122,9 @@ class UmiLayers:
             return None
 
     def find_layer_from_name(self, name):
+        """Find layer from name."""
         try:
-            _first, *others = filter(
-                lambda x: x.Name == name, self._file3dm.Layers
-            )
+            _first, *others = filter(lambda x: x.Name == name, self._file3dm.Layers)
             if others:
                 raise ReferenceError(
                     "There are more than one layers with " f"the name '{name}'"
@@ -119,10 +134,9 @@ class UmiLayers:
             return None
 
     def find_layer_from_fullpath(self, full_path):
+        """Find layer frm full path."""
         try:
-            _layer, *_ = filter(
-                lambda x: x.FullPath == full_path, self._file3dm.Layers
-            )
+            _layer, *_ = filter(lambda x: x.FullPath == full_path, self._file3dm.Layers)
             return _layer
         except ValueError:
             return None
