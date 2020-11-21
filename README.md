@@ -242,3 +242,18 @@ name                   0        10        11  ...   61         7         8
 2017-12-31 23:00:00  0.0  4.957705  4.560792  ...  0.0  3.343510  2.173121
 [8760 rows x 55 columns]
 ````
+
+## Contributing
+
+### Code Style
+We use isort to sort imports.
+We use [black](https://black.readthedocs.io/en/stable/) for code formatting.
+
+At the root of the repository, run in this order:
+1. isort: `isort .` (mind the period)
+1. black: `black .` (mind the period)
+1. flake8: `python -m flake8 pyumi/`
+
+### Unit testing
+At the root of the repository, run pytest: `python -m pytest`.
+
