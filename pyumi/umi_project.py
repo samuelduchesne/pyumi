@@ -1,7 +1,10 @@
+"""Module to handle umi projects as python objects."""
+
 import csv
 import json
 import logging
 import math
+import os
 import re
 import tempfile
 import time
@@ -12,6 +15,7 @@ from sqlite3 import OperationalError
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
 
+import chardet
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -26,7 +30,6 @@ from path import Path
 from pyproj import CRS
 from rhino3dm import Brep, File3dm, Point3d, Point3dList, PolylineCurve
 from rhino3dm._rhino3dm import UnitSystem
-from shapely.geometry.polygon import orient
 from tabulate import tabulate
 from tqdm import tqdm
 
@@ -39,7 +42,7 @@ log = logging.getLogger("pyumi.UmiProject")
 
 
 class UmiProject:
-    """An UMI Project
+    """An UMI Project.
 
     Attributes:
         to_crs (dict): The
@@ -82,16 +85,7 @@ class UmiProject:
         sdl_common=None,
         fast_open=False,
     ):
-        """An UmiProject package containing the _file3dm file, the project
-        settings, the umi.sqlite3 database.
-
-        Args:
-            to_crs (CRS): The coordinate projection system.
-            project_name (str): The name of the project
-            epw (str or Path or Epw): Path of the weather file or Epw object.
-            template_lib (str or Path):
-        """
-
+        """Constructor."""
         self.fid = fid  # Column use as unique id gdf3dm
         self.sdl_common = sdl_common if sdl_common is not None else {}
         self.to_crs = to_crs
@@ -137,13 +131,12 @@ class UmiProject:
 
     @property
     def epw(self):
-        """The weather file as an Epw object"""
+        """The weather file as an Epw object."""
         return self._epw
 
     @epw.setter
     def epw(self, value):
-        """Sets the weather file. If a string is passed, it is loaded as na
-        Epw object"""
+        """Set the weather file. If a string is passed, it is loaded as a Epw object."""
         if value:
             if isinstance(value, Epw):
                 self._epw = value
@@ -156,12 +149,12 @@ class UmiProject:
 
     @property
     def template_lib(self):
-        """The template library"""
+        """The template library."""
         return self._template_lib
 
     @template_lib.setter
     def template_lib(self, value):
-        """Sets the template library. If a file is passed, it is loaded"""
+        """Set the template library. If a file is passed, it is loaded."""
         if isinstance(value, dict):
             self._template_lib = value
         elif isinstance(value, (str or Path)):
@@ -172,13 +165,12 @@ class UmiProject:
 
     @property
     def to_crs(self):
-        """The cartesian coordinate system used in the file3dm"""
+        """The cartesian coordinate system used in the file3dm."""
         return self._to_crs
 
     @to_crs.setter
     def to_crs(self, value):
-        """Sets the CRS by checking first if it is a cartesian coordinate
-        system"""
+        """Set the CRS by checking first if it is a cartesian coordinate system."""
         if isinstance(value, CRS):
             _crs = value
         elif isinstance(value, dict):
@@ -201,6 +193,7 @@ class UmiProject:
         self._to_crs = _crs
 
     def __del__(self):
+        """Delete object."""
         self.umi_sqlite3.close()
         self.tmp.rmtree_p()
 
@@ -217,12 +210,13 @@ class UmiProject:
         to_crs=None,
         **kwargs,
     ):
-        """Returns an UMI project by reading a GIS file (Shapefile, GeoJson,
-        etc.). A height attribute must be passed in order to extrude the
-        building footprints to their height. All buildings will have an
-        elevation of 0 m. The input file is reprojected to :attr:`to_crs`
-        (defaults to 'epsg:3857') and the extent is moved to the origin
-        coordinates.
+        """Returns an UMI project by reading a GIS file.
+
+        Supported file types: (Shapefile, GeoJson,etc.). A height attribute
+        must be passed in order to extrude the building footprints to their
+        height. All buildings will have an elevation of 0 m. The input file
+        is reprojected to :attr:`to_crs` (defaults to 'epsg:3857') and the
+        extent is moved to the origin coordinates.
 
         Args:
             input_file (str or Path): Path to the GIS file. A zipped file
@@ -257,9 +251,8 @@ class UmiProject:
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
         def on_frame(map_to_column, template_map):
-            """Returns the DataFrame for left_join based on number of
-            nested levels"""
-            depth = dict_depth(template_map)
+            """Returns the DataFrame for left_join based on number of nested levels."""
+            depth = _dict_depth(template_map)
             if depth == 2:
                 return (
                     pd.Series(template_map)
@@ -322,11 +315,12 @@ class UmiProject:
         fid=None,
         **kwargs,
     ):
-        """Returns an UMI project by reading a GeoDataFrame. A height
-        attribute must be passed in order to extrude the
-        building footprints to their height. All buildings will have an
-        elevation of 0 m. The GeoDataFrame must be projected and the extent
-        is moved to the origin coordinates.
+        """Return an UMI project by reading a GeoDataFrame.
+
+        A height attribute must be passed in order to extrude the building
+        footprints to their height. All buildings will have an elevation of
+        0 m. The GeoDataFrame must be projected and the extent is moved to
+        the origin coordinates.
 
         Args:
             template_column_name (str): The column in the GeoDataFrame that
@@ -460,7 +454,7 @@ class UmiProject:
         # Add all Breps to Model and append UUIDs to gdf
         tqdm.pandas(desc="Adding Breps to File3dm")
 
-        def try_add(series):
+        def _try_add(series):
             if file3dm:
                 obj = file3dm.Objects.FindId(series[fid])
                 if obj:
@@ -468,13 +462,13 @@ class UmiProject:
             else:
                 return umi_project.file3dm.Objects.AddBrep(series["rhino_geom"])
 
-        gdf["guid"] = gdf.progress_apply(try_add, axis=1)
+        gdf["guid"] = gdf.progress_apply(_try_add, axis=1)
         gdf.drop(columns=["rhino_geom"], inplace=True)  # don't carry around
 
         def move_to_layer(series):
-            """finds the rhino3dm geometry for this series' guid and moves
-            it to the correct layer: Shading if the template assignment is
-            None, Buildings for the rest
+            """Find the rhino3dm geometry for this series' guid and moves it to the correct layer.
+
+            Shading if the template assignment is None, Buildings for the rest.
             """
             obj3dm = umi_project.file3dm.Objects.FindId(series.guid)
             if series["TemplateName"] is None:
@@ -498,7 +492,7 @@ class UmiProject:
         return umi_project
 
     def update_umi_sqlite3(self):
-        """Updates the self.umi_sqlite3 with self.gdf_3dm
+        """Update the self.umi_sqlite3 with self.gdf_3dm.
 
         Returns:
             UmiProject: self
@@ -555,8 +549,9 @@ class UmiProject:
         return self
 
     def add_default_shoebox_settings(self):
-        """Adds default values to self.gdf_3dm. If values are already
-        defined, only NaNs are replace.
+        """Adds default values to self.gdf_3dm.
+
+        If values are already defined, only NaNs are replace.
 
         Returns:
             UmiProject: self
@@ -573,9 +568,11 @@ class UmiProject:
         return self
 
     def add_site_boundary(self):
-        """Add Site boundary PolylineCurve. Uses the exterior of the
-        convex_hull of the unary_union of all footprints. This is a good
-        approximation of a site boundary in most cases.
+        """Add Site boundary PolylineCurve.
+
+        Uses the exterior of the convex_hull of the unary_union of all
+        footprints. This is a good approximation of a site boundary in most
+        cases.
 
         Returns:
             UmiProject: self
@@ -747,13 +744,13 @@ class UmiProject:
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
-        """Write the ``UmiProject`` to another file format. The
-        :attr:`UmiProject.gdf_3dm` is first translated back to the
-        :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
-        to the :attr:`UmiProject.world_gdf._crs`.
+        """Write the ``UmiProject`` to another file format.
 
-        By default, a GeoJSON is written, but any OGR data source
-        supported by Fiona can be written. A dictionary of supported OGR
+        The :attr:`UmiProject.gdf_3dm` is first translated back to the
+        :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
+        to the :attr:`UmiProject.world_gdf._crs`. By default, a GeoJSON is
+        written, but any OGR data source supported by Fiona can be written.
+        A dictionary of supported OGR
         providers is available via:
 
         >>> import fiona
@@ -819,7 +816,7 @@ class UmiProject:
             raise NotImplementedError(f"The drive {driver} is not supported.")
 
     def save(self, filename=None):
-        """Saves the UmiProject to a packaged .umi file (zipped folder)
+        """Saves the UmiProject to a packaged .umi file (zipped folder).
 
         Args:
             filename (str or Path): Optional, the path to the destination.
@@ -888,9 +885,9 @@ class UmiProject:
         custom_filter=None,
         on_file3dm_layer=None,
     ):
-        """Downloads a spatial street graph from OpenStreetMap's APIs and
-        transforms it to PolylineCurves to the self.file3dm document.
+        """Download a spatial street graph from OpenStreetMap's APIs.
 
+        Transforms the graph to PolylineCurves to the self.file3dm document.
         Uses :ref:`osmnx` to retrieve the street graph. The same parameters
         as :met:`osmnx.graph.graph_from_polygon` are available.
 
@@ -1078,6 +1075,28 @@ class UmiProject:
         return self
 
 
+def to_buffer(buffer_or_path):
+    """Get a buffer from a buffer or a path.
+
+    Args:
+        buffer_or_path (typing.StringIO or str):
+
+    Returns:
+        typing.StringIO
+    """
+    if isinstance(buffer_or_path, str):
+        if not os.path.isfile(buffer_or_path):
+            raise FileNotFoundError(f"no file found at given path: {buffer_or_path}")
+        path = buffer_or_path
+        with open(buffer_or_path, "rb") as f:
+            encoding = chardet.detect(f.read())
+        buffer = open(buffer_or_path, encoding=encoding["encoding"], errors="ignore")
+    else:
+        path = None
+        buffer = buffer_or_path
+    return path, buffer
+
+
 create_nonplottable_setting = """create table nonplottable_setting
 (
     key       TEXT not null,
@@ -1119,14 +1138,18 @@ create_data_point = """create table data_point
 );"""
 
 
-def dict_depth(dic, level=1):
+def _dict_depth(dic, level=1):
+    """Find depth of a dictionary."""
     if not isinstance(dic, dict) or not dic:
         return level
-    return max(dict_depth(dic[key], level + 1) for key in dic)
+    return max(_dict_depth(dic[key], level + 1) for key in dic)
 
 
 class ComplexEncoder(json.JSONEncoder):
+    """A json encoder extension."""
+
     def default(self, obj):
+        """Function that gets called for objects that can't otherwise be serialized."""
         if isinstance(obj, uuid.UUID):
             return str(obj)
         elif isinstance(obj, Brep):
@@ -1136,7 +1159,10 @@ class ComplexEncoder(json.JSONEncoder):
 
 
 class Epw(epw):
+    """A class to read Epw files."""
+
     def __init__(self, path):
+        """Construct Epw object."""
         super(Epw, self).__init__()
         self.read(path)
 
@@ -1156,12 +1182,12 @@ class Epw(epw):
             pass
 
     def _read_headers(self, fp):
-        """Reads the headers of an epw file
+        """Read the headers of an epw file.
 
-        Arguments:
+        Args:
             - fp (str): the file path of the epw file
 
-        Return value:
+        Returns:
             - d (dict): a dictionary containing the header rows
 
         """
@@ -1180,16 +1206,14 @@ class Epw(epw):
         return d
 
     def _read_data(self, fp):
-        """Reads the climate data of an epw file
+        """Read the climate data of an epw file.
 
-        Arguments:
+        Args:
             - fp (str): the file path of the epw file
 
-        Return value:
-            - df (pd.DataFrame): a DataFrame comtaining the climate data
-
+        Returns:
+            - df (pd.DataFrame): a DataFrame containing the climate data
         """
-
         names = [
             "Year",
             "Month",
@@ -1233,13 +1257,13 @@ class Epw(epw):
         return df
 
     def _first_row_with_climate_data(self, fp):
-        """Finds the first row with the climate data of an epw file
+        """Find the first row with the climate data of an epw file.
 
-        Arguments:
-            - fp (str): the file path of the epw file
+        Args:
+            fp (str): the file path of the epw file
 
-        Return value:
-            - i (int): the row number
+        Returns:
+            (int): the row number
 
         """
         if isinstance(fp, str):
@@ -1254,6 +1278,7 @@ class Epw(epw):
 
     @property
     def name(self):
+        """Name of Epw file."""
         return self._name
 
     @name.setter
@@ -1264,21 +1289,23 @@ class Epw(epw):
             self._name = Path(value).basename()
 
     def as_str(self):
-        """Returns Epw as a string"""
+        """Return Epw as a string."""
         # Todo: Epw, make sure modified string is returned. Needs parsing
         #  fix of epw file
         return self._epw_io
 
 
 class Energy:
-    """Handles reporting energy results from the Energy Module"""
+    """A class to handle reporting energy results from the Energy Module."""
 
     _umi_project: UmiProject
 
     def __init__(self, umi_project):
+        """Construct :class:`UmiProject` object."""
         self._umi_project = umi_project
 
     def __repr__(self):
+        """Repr."""
         series = [key for key in self.__dict__.keys() if not key.startswith("_")]
         totals = [(key, f"{getattr(self, key).sum().sum():.0f}") for key in series]
         tab = tabulate(totals, ("Available Series", "Totals"))
@@ -1291,7 +1318,7 @@ class Energy:
         return self._df
 
     def _get_series(self):
-        """Retrieves energy results and saves them to the db"""
+        """Retrieve energy results and save them to the db."""
         # First get the distinct set of (name, units, resolution).
         series_names = self._umi_project.umi_sqlite3.execute(
             """select distinct name, units, resolution from series"""

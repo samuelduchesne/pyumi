@@ -1,4 +1,5 @@
-"""geometry operations"""
+"""Module to hangle various geometry operations."""
+
 import numpy as np
 import shapely
 from rhino3dm import (
@@ -15,8 +16,7 @@ from rhino3dm._rhino3dm import ObjectColorSource
 
 
 def extract_poly_coords(geom):
-    """Extracts geometry coordinates into an exterior and a list of
-    interiors"""
+    """Extract geometry coordinates into a tuple (exterior, list of interiors)."""
     if geom.type == "Polygon":
         exterior_coords = geom.exterior.coords[:]
         interior_coords = []
@@ -35,8 +35,7 @@ def extract_poly_coords(geom):
 
 
 def geom_to_brep(geom, height=None):
-    """Convert a Shapely :class:`shapely.geometry.base.BaseGeometry` to a
-    :class:`_file3dm.Brep`. If
+    """Convert a Shapely :class:`shapely.geometry.base.BaseGeometry` to a :class:`_file3dm.Brep`.
 
     Args:
         geom (shapely.geometry.base.BaseGeometry): A Shapely Geometry
@@ -97,8 +96,10 @@ def geom_to_brep(geom, height=None):
 
 
 def geom_to_face_with_hole(geom):
-    """Converts a Polygon or Multipolygon to a Brep. Geometry is a trimmed
-    plane, trimmed by the exterior ring of the geometry.
+    """Convert a Polygon or Multipolygon to a Brep.
+
+    The returned geometry is a trimmed plane, trimmed by the exterior
+    ring of the input geometry (geom).
 
     Args:
         geom (shapely.geometry.Polygon or shapely.geometry.MultiPolygon: The
@@ -109,7 +110,7 @@ def geom_to_face_with_hole(geom):
 
     Hint:
         Because of the limitations of the current version of rhino3dm.py,
-        holes in a geometry will be ignored. To create
+        holes in a geometry will be ignored.
 
     See Also:
         :ref:`pyumi.umi_project.geom_to_brep`
@@ -121,7 +122,7 @@ def geom_to_face_with_hole(geom):
 
     # Cannot create hole for now
     # for interior in interiors:
-    #     coords += [Point3d(x, y, 0) for x, y, *z in interior]
+    #     coords += [Point3d(layer_name, y, 0) for layer_name, y, *z in interior]
 
     exterior_crv = PolylineCurve(Point3dList(coords[1:]))
     brep = Brep.CreateTrimmedPlane(
@@ -133,7 +134,7 @@ def geom_to_face_with_hole(geom):
 
 
 def resolve_3dm_geom(series, file3dm, on_file3dm_layer, fid, **kwargs):
-    """resolves a :class:`GeoSeries` to a rhino3dm object.
+    """Resolve a :class:`GeoSeries` to a rhino3dm object.
 
     Args:
         file3dm (File3dm): The File3dm object to build the geometry to.
