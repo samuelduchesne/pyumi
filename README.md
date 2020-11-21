@@ -27,6 +27,10 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 - features that are made of a MultiPolygon will be broken down into distinct Breps and will share the same attributes.
 - features that don't resolve with any template assignment will be put to the ``umi::Context::Shading`` layer.
 
+## Compatibility
+
+Because pyumi relies on the rhino3dm library, it is only compatible with python 3.7.
+
 ## Installation
 
 pyumi uses many GIS libraries that are quite finicky. It is strongly recommended that pyumi be installed on a new conda environment:
