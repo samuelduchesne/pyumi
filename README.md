@@ -38,6 +38,7 @@ pyumi uses many GIS libraries that are quite finicky. It is strongly recommended
 ```python
 git clone https://github.com/samuelduchesne/pyumi.git
 cd pyumi
+conda create -c conda-forge -n pyumi python=3.7
 conda env update -n pyumi --file environment.yml
 conda activate pyumi
 ```
