@@ -34,14 +34,9 @@ class TestUmiProject:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiProject.from_gis(
-            filename,
-            "Height",
-            epw=epw,
-            template_lib=template_lib,
-            template_map=TestUmiProject.depth2,
-            map_to_column="Use_Type",
-        )
+        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
+                                  template_map=TestUmiProject.depth2,
+                                  map_to_column="Use_Type", epw=epw)
         # Add a Street Graph
         umi.add_street_graph(
             network_type="all_private", retain_all=True, clean_periphery=False
@@ -75,14 +70,9 @@ class TestUmiProject:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiProject.from_gis(
-            filename,
-            "Height",
-            epw=epw,
-            template_lib=template_lib,
-            template_map=multi_attributes,
-            map_to_column=map_to_column,
-        )
+        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
+                                  template_map=multi_attributes,
+                                  map_to_column=map_to_column, epw=epw)
         # save UmiProject to created package.
         umi.save()
 
@@ -137,14 +127,9 @@ class TestUmiProjectOps:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        yield UmiProject.from_gis(
-            filename,
-            "Height",
-            epw=epw,
-            template_lib=template_lib,
-            template_map=TestUmiProject.depth2,
-            map_to_column="Use_Type",
-        )
+        yield UmiProject.from_gis(filename, "Height", template_lib=template_lib,
+                                  template_map=TestUmiProject.depth2,
+                                  map_to_column="Use_Type", epw=epw)
 
     def test_save_to_non_existent_path(self):
         umi = UmiProject()

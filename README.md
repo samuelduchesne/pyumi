@@ -70,14 +70,7 @@ filename = "tests/oshkosh_demo.zip"
 epw = "tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
-umi = UmiProject.from_gis(
-    "zip://" + filename,
-    "Height",  # height attr column name
-    epw=epw,
-    template_lib=template_lib,
-    template_map=template_map,
-    map_to_column="Use_Type",
-)
+umi = UmiProject.from_gis("zip://" + filename,"Height",template_lib=template_lib,template_map=template_map,map_to_column="Use_Type",epw=epw)
 ```
 
 ## MultiLevel template assigment
@@ -100,14 +93,7 @@ filename = "tests/oshkosh_demo.zip"
 epw = "tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
 template_lib = "tests/BostonTemplateLibrary.json"
 template_map = dict(COMMERCIAL="B_Off_0", RESIDENTIAL="B_Res_0_WoodFrame")
-umi = UmiProject.from_gis(
-    "zip://" + filename,
-    "Height",  # height attr column name
-    epw=epw,
-    template_lib=template_lib,
-    template_map=template_map,
-    map_to_column=["Use_Type", "Year_Built"],
-).save()
+umi = UmiProject.from_gis("zip://" + filename,"Height",template_lib=template_lib,template_map=template_map,map_to_column=["Use_Type", "Year_Built"],epw=epw).save()
 ```
 
 ## Download OSM Street Networks

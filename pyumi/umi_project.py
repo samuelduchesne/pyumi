@@ -202,10 +202,10 @@ class UmiProject:
         cls,
         input_file,
         height_column_name,
-        epw,
         template_lib,
         template_map,
         map_to_column,
+        epw=None,
         fid=None,
         to_crs=None,
         **kwargs,
@@ -220,7 +220,7 @@ class UmiProject:
 
         Args:
             input_file (str or Path): Path to the GIS file. A zipped file
-                can be passed by appending the path with "zip:/". Any file
+                can be passed by appending the path with "zip://". Any file
                 type read by :meth:`geopandas.io.file._read_file` is
                 compatible.
             height_column_name (str): The attribute name containing the
@@ -291,14 +291,7 @@ class UmiProject:
         gdf.index = _index
 
         umi_project = cls.from_gdf(
-            gdf,
-            height_column_name,
-            "TMP",
-            epw,
-            template_lib,
-            to_crs,
-            fid,
-            **kwargs,
+            gdf, height_column_name, "TMP", template_lib, epw, to_crs, fid, **kwargs
         )
         umi_project.add_site_boundary()
         return umi_project
@@ -309,8 +302,8 @@ class UmiProject:
         gdf,
         height_column_name,
         template_column_name,
-        epw,
         template_lib,
+        epw=None,
         to_crs=None,
         fid=None,
         **kwargs,
