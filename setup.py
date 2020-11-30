@@ -18,7 +18,7 @@ setup(
     author="Samuel Letellier-Duchesne",
     author_email="samueld@mit.edu",
     description="Create and edit umi projects",
-    python_requires="==3.7",
+    python_requires="==3.7.*",
     install_requires=install_requires,
     dependency_links=["https://github.com/building-energy/epw.git#egg=epw"],
 )
