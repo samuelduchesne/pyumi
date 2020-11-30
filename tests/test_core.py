@@ -72,7 +72,7 @@ class TestUmiProject:
         assert epw.exists()
         umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
                                   template_map=multi_attributes,
-                                  map_to_column=map_to_column, epw=epw)
+                                  map_to_column=map_to_column, epw=epw, fid="ID")
         # save UmiProject to created package.
         umi.save()
 

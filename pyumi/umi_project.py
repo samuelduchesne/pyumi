@@ -203,8 +203,9 @@ class UmiProject:
         input_file,
         height_column_name,
         template_lib,
-        template_map,
-        map_to_column,
+        template_column_name=None,
+        template_map=None,
+        map_to_column=None,
         epw=None,
         fid=None,
         to_crs=None,
@@ -225,6 +226,15 @@ class UmiProject:
                 compatible.
             height_column_name (str): The attribute name containing the
                 height values. Missing values will be ignored.
+            template_lib (path or dict): The path to the umi template library. A
+                dictionary can also be passed.
+            template_column_name (str): The column name containing the template names
+                for each footprint in the GIS file. If None, :attr:`template_map`
+                and :attr:`map_to_column` must be provided.
+            template_map (dict): A dictionary of the relationship between the GIS
+                attribute column and a specific template name in the template library.
+            map_to_column (list of str): A list of column names to map templates to.
+            epw (path): The path of the epw file. Optional.
             fid (str): Optional, the column name corresponding to the id of
                 each feature. If None, a serial id is created automatically.
             to_crs (dict): The output CRS to which the file will be
@@ -248,6 +258,63 @@ class UmiProject:
         if "project_name" not in kwargs:
             kwargs["project_name"] = input_file.stem
 
+        return cls.from_gdf(
+            gdf,
+            height_column_name=height_column_name,
+            template_lib=template_lib,
+            template_column_name=template_column_name,
+            template_map=template_map,
+            map_to_column=map_to_column,
+            epw=epw,
+            fid=fid,
+            to_crs=to_crs,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_gdf(
+        cls,
+        gdf,
+        height_column_name,
+        template_lib,
+        template_column_name=None,
+        template_map=None,
+        map_to_column=None,
+        epw=None,
+        fid=None,
+        to_crs=None,
+        **kwargs,
+    ):
+        """Return an UMI project by reading a GeoDataFrame.
+
+        A height attribute must be passed in order to extrude the building
+        footprints to their height. All buildings will have an elevation of
+        0 m. The GeoDataFrame must be projected and the extent is moved to
+        the origin coordinates.
+
+        Args:
+            gdf (GeoDataFrame): The GeoDataFrame.
+            height_column_name (str): The attribute name containing the
+                height values. Missing values will be ignored.
+            template_lib (path or dict): The path to the umi template library. A
+                dictionary can also be passed.
+            template_column_name (str): The column name containing the template names
+                for each footprint in the GIS file. If None, :attr:`template_map`
+                and :attr:`map_to_column` must be provided.
+            template_map (dict): A dictionary of the relationship between the GIS
+                attribute column and a specific template name in the template library.
+            map_to_column (list of str): A list of column names to map templates to.
+            epw (path): The path of the epw file. Optional.
+            fid (str): Optional, the column name corresponding to the id of
+                each feature. If None, a serial id is created automatically.
+            to_crs (dict or CRS, optional): The CRS the input_file is
+                projected to for a planer representation in the file3dm.
+                Units of the crs must be meters.
+            **kwargs: keyword arguments passed to UmiProject constructor.
+
+        Returns:
+            UmiProject: The UmiProject. Needs to be saved.
+        """
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
         def on_frame(map_to_column, template_map):
@@ -284,54 +351,23 @@ class UmiProject:
                 raise NotImplementedError("5 levels or more are not yet supported")
 
         _index = gdf.index
-        if map_to_column:
-            gdf = gdf.set_index(map_to_column).join(
-                on_frame(map_to_column, template_map), on=map_to_column
-            )
+        if template_column_name is None:
+            if template_map and map_to_column:
+                # map templates using template_map. This adds a column named "TemplateName"
+                gdf = gdf.set_index(map_to_column).join(
+                    on_frame(map_to_column, template_map), on=map_to_column
+                )
+            else:
+                raise ValueError(
+                    "If `template_column_name` is None, `template_map` and "
+                    "`map_to_column` must be provided."
+                )
+        else:
+            # rename the user-defined template_column_name to the
+            # umi one ("TemplateName")
+            gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
         gdf.index = _index
 
-        umi_project = cls.from_gdf(
-            gdf, height_column_name, "TMP", template_lib, epw, to_crs, fid, **kwargs
-        )
-        umi_project.add_site_boundary()
-        return umi_project
-
-    @classmethod
-    def from_gdf(
-        cls,
-        gdf,
-        height_column_name,
-        template_column_name,
-        template_lib,
-        epw=None,
-        to_crs=None,
-        fid=None,
-        **kwargs,
-    ):
-        """Return an UMI project by reading a GeoDataFrame.
-
-        A height attribute must be passed in order to extrude the building
-        footprints to their height. All buildings will have an elevation of
-        0 m. The GeoDataFrame must be projected and the extent is moved to
-        the origin coordinates.
-
-        Args:
-            template_column_name (str): The column in the GeoDataFrame that
-                contains the names of the templates.
-            input_file (str or Path): Path to the GIS file. A zipped file
-                can be passed by appending the path with "zip:/". Any file
-                type read by :meth:`geopandas.io.file._read_file` is
-                compatible.
-            height_column_name (str): The attribute name containing the
-                height values. Missing values will be ignored.
-            to_crs (dict or CRS, optional): The CRS the input_file is
-                projected to for a planer representation in the file3dm.
-                Units of the crs must be meters.
-            **kwargs: keyword arguments passed to UmiProject constructor.
-
-        Returns:
-            UmiProject: The UmiProject. Needs to be saved.
-        """
         # Filter rows; Display invalid geometries in log
         valid_geoms = gdf.geometry.is_valid
         if (~valid_geoms).any():
@@ -423,10 +459,6 @@ class UmiProject:
                 f"{time.time() - start_time:,.2f} seconds"
             )
         gdf = gdf.loc[~errored_brep, :]
-
-        # rename the user-defined template_column_name to the
-        # umi one ("TemplateName")
-        gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
 
         # create the UmiProject object
         umi_project = cls(
