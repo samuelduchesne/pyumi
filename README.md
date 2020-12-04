@@ -35,7 +35,7 @@ Because pyumi relies on the rhino3dm library, it is only compatible with python 
 
 pyumi uses many GIS libraries that are quite finicky. It is strongly recommended that pyumi be installed on a new conda environment:
 
-```python
+```shell script
 git clone https://github.com/samuelduchesne/pyumi.git
 cd pyumi
 conda create -c conda-forge -n pyumi python=3.7
