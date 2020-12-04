@@ -318,11 +318,16 @@ class UmiProject:
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
         def on_frame(map_to_column, template_map):
-            """Returns the DataFrame for left_join based on number of nested levels."""
+            """Returns the DataFrame for left_join based on number of nested levels.
+
+            The return df has the form <MultiIndex([PrimaryGrouping, SecondaryGrouping]):
+            "TemplateName > for dict depth >= 2
+            """
             depth = _dict_depth(template_map)
             if depth == 2:
                 return (
                     pd.Series(template_map)
+                    .astype("string")  # forces as string
                     .rename_axis(map_to_column)
                     .rename("TemplateName")
                     .to_frame()
@@ -330,6 +335,9 @@ class UmiProject:
             elif depth == 3:
                 return (
                     pd.DataFrame(template_map)
+                    .reset_index()
+                    .astype("string")  # forces as string
+                    .set_index("index")
                     .stack()
                     .swaplevel()
                     .rename_axis(map_to_column)
@@ -339,6 +347,9 @@ class UmiProject:
             elif depth == 4:
                 return (
                     pd.DataFrame(template_map)
+                    .reset_index()
+                    .astype("string")  # forces as string
+                    .set_index("index")
                     .stack()
                     .swaplevel()
                     .apply(pd.Series)
