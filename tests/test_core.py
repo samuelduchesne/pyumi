@@ -24,7 +24,7 @@ class TestUmiProject:
     depth4 = {
         "COMMERCIAL": {1948: {"UMU": "B_Off_0"}, 2008: "B_Off_0"},
         "RESIDENTIAL": {
-            1948: {"CMU": "B_Res_0_WoodFrame", "TR-10": "B_Res_0_Masonry"},
+            "1948": {"CMU": "B_Res_0_WoodFrame", "TR-10": "B_Res_0_Masonry"},
             2008: {"TR-10": "B_Res_0_Masonry"},
         },
     }
@@ -36,7 +36,7 @@ class TestUmiProject:
         assert epw.exists()
         umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
                                   template_map=TestUmiProject.depth2,
-                                  map_to_column="Use_Type", epw=epw)
+                                  map_to_columns=["Use_Type"], epw=epw)
         # Add a Street Graph
         umi.add_street_graph(
             network_type="all_private", retain_all=True, clean_periphery=False
@@ -58,21 +58,21 @@ class TestUmiProject:
         assert umi.name == projectName
 
     @pytest.mark.parametrize(
-        "multi_attributes, map_to_column",
+        "multi_attributes, map_to_columns",
         [
             (depth2, ["Use_Type"]),
             (depth3, ["Use_Type", "Year_Built"]),
             (depth4, ["Use_Type", "Year_Built", "ZONING"]),
         ],
     )
-    def test_multilevel(self, multi_attributes, map_to_column):
+    def test_multilevel(self, multi_attributes, map_to_columns):
         filename = Path("tests/oshkosh_demo.geojson")
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
         umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
                                   template_map=multi_attributes,
-                                  map_to_column=map_to_column, epw=epw, fid="ID")
+                                  map_to_columns=map_to_columns, epw=epw, fid="ID")
         # save UmiProject to created package.
         umi.save()
 
@@ -110,13 +110,13 @@ class TestGeom:
         yield geom
 
     def test_multipolygon(self, multipolygon_with_hole):
-        rhino3dm_geom = geom_to_brep(multipolygon_with_hole, 1)
+        rhino3dm_geom = geom_to_brep(multipolygon_with_hole, 0, 1)
         assert isinstance(rhino3dm_geom, Brep)
 
         assert rhino3dm_geom.IsSolid is True
 
     def test_polygon(self, polygon_with_hole):
-        rhino3dm_geom = geom_to_brep(polygon_with_hole, 0)
+        rhino3dm_geom = geom_to_brep(polygon_with_hole, 0, 0)
         assert isinstance(rhino3dm_geom, Brep)
 
 
@@ -129,7 +129,7 @@ class TestUmiProjectOps:
         assert epw.exists()
         yield UmiProject.from_gis(filename, "Height", template_lib=template_lib,
                                   template_map=TestUmiProject.depth2,
-                                  map_to_column="Use_Type", epw=epw)
+                                  map_to_columns="Use_Type", epw=epw)
 
     def test_save_to_non_existent_path(self):
         umi = UmiProject()

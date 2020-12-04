@@ -34,18 +34,26 @@ def extract_poly_coords(geom):
     return exterior_coords, interior_coords
 
 
-def geom_to_brep(geom, height=None):
-    """Convert a Shapely :class:`shapely.geometry.base.BaseGeometry` to a :class:`_file3dm.Brep`.
+def geom_to_brep(geom, from_elevation=0, to_elevation=0):
+    """Convert a Shapely :class:`shapely.geometry.base.BaseGeometry` to a
+    :class:`_file3dm.Brep`.
 
     Args:
-        geom (shapely.geometry.base.BaseGeometry): A Shapely Geometry
-        height (float): The height of the extrusion.
+        geom (shapely.geometry.base.BaseGeometry): An input Shapely Geometry object
+            to extrude.
+        from_elevation (float): The starting elevation (meters) of the extrusion.
+            Defaults to 0 m (XY Plane).
+        to_elevation (float): The ending elevation (meters) of the extrusion.
+            Defaults to 0 m (XY Plane).
 
     Returns:
-        Brep: The Brep
+        Brep: An Extrusion or a PlanarSurface (as Breps).
+
+        The returned object is an Extrusion if :attr:`to_elevation` is != 0,
+        otherwise it is a PlanarSurface.
     """
-    # If height is None (or zero), then create face.
-    if height is None or height <= 1e-12:
+    # If height is zero, then create face.
+    if to_elevation <= 1e-12:
         return geom_to_face_with_hole(geom)
     # Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
     exterior, interiors = extract_poly_coords(geom)
@@ -62,14 +70,14 @@ def geom_to_brep(geom, height=None):
             )
         )
 
-    if outerProfile is None or height <= 1e-12:
+    if outerProfile is None or to_elevation <= 1e-12:
         return np.NaN
 
     plane = Plane.WorldXY()
     if not plane:
         return np.NaN
 
-    path = Line(Point3d(0, 0, 0), Point3d(0, 0, height))
+    path = Line(Point3d(0, 0, 0), Point3d(0, 0, to_elevation))
     if not path.IsValid or path.Length <= 1e-12:
         return np.NaN
 
@@ -162,7 +170,7 @@ def resolve_3dm_geom(series, file3dm, on_file3dm_layer, fid, **kwargs):
         return guid
     elif isinstance(geom, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)):
         # if geom is a Polygon
-        geom3dm = geom_to_brep(geom, 0)
+        geom3dm = geom_to_brep(geom, 0, 0)
 
         # Set the pois attributes
         geom3dm_attr = ObjectAttributes()
