@@ -1,5 +1,5 @@
 """Module to handle umi projects as python objects."""
-
+import collections
 import csv
 import json
 import logging
@@ -205,7 +205,7 @@ class UmiProject:
         template_lib,
         template_column_name=None,
         template_map=None,
-        map_to_column=None,
+        map_to_columns=None,
         epw=None,
         fid=None,
         to_crs=None,
@@ -230,11 +230,11 @@ class UmiProject:
                 dictionary can also be passed.
             template_column_name (str): The column name containing the template names
                 for each footprint in the GIS file. If None, :attr:`template_map`
-                and :attr:`map_to_column` must be provided.
+                and :attr:`map_to_columns` must be provided.
             template_map (dict): A dictionary of the relationship between the GIS
                 attribute column and a specific template name in the template library.
-            map_to_column (list of str): A list of column names to map templates to.
-            epw (path): The path of the epw file. Optional.
+            map_to_columns (list of str): A list of column names to map templates to.
+            epw (str or path): The path of the epw file. Optional.
             fid (str): Optional, the column name corresponding to the id of
                 each feature. If None, a serial id is created automatically.
             to_crs (dict): The output CRS to which the file will be
@@ -264,7 +264,7 @@ class UmiProject:
             template_lib=template_lib,
             template_column_name=template_column_name,
             template_map=template_map,
-            map_to_column=map_to_column,
+            map_to_columns=map_to_columns,
             epw=epw,
             fid=fid,
             to_crs=to_crs,
@@ -277,9 +277,9 @@ class UmiProject:
         gdf,
         height_column_name,
         template_lib,
-        template_column_name=None,
+        template_column_name="TemplateName",
         template_map=None,
-        map_to_column=None,
+        map_to_columns=None,
         epw=None,
         fid=None,
         to_crs=None,
@@ -300,10 +300,10 @@ class UmiProject:
                 dictionary can also be passed.
             template_column_name (str): The column name containing the template names
                 for each footprint in the GIS file. If None, :attr:`template_map`
-                and :attr:`map_to_column` must be provided.
+                and :attr:`map_to_columns` must be provided.
             template_map (dict): A dictionary of the relationship between the GIS
                 attribute column and a specific template name in the template library.
-            map_to_column (list of str): A list of column names to map templates to.
+            map_to_columns (list of str): A list of column names to map templates to.
             epw (path): The path of the epw file. Optional.
             fid (str): Optional, the column name corresponding to the id of
                 each feature. If None, a serial id is created automatically.
@@ -317,65 +317,57 @@ class UmiProject:
         """
         # Assign template names using map. Changes elements based on the
         # chosen column name parameter.
-        def on_frame(map_to_column, template_map):
+        def on_frame(map_to_columns, template_map):
             """Returns the DataFrame for left_join based on number of nested levels.
 
-            The return df has the form <MultiIndex([PrimaryGrouping, SecondaryGrouping]):
-            "TemplateName > for dict depth >= 2
+            The return df has the form <MultiIndex([Grouping1, Grouping2, ...]):
+            "TemplateName > if dict_depth > 2, otherwise it is a normal Index.
             """
-            depth = _dict_depth(template_map)
-            if depth == 2:
-                return (
-                    pd.Series(template_map)
-                    .astype("string")  # forces as string
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            elif depth == 3:
-                return (
-                    pd.DataFrame(template_map)
-                    .reset_index()
-                    .astype("string")  # forces as string
-                    .set_index("index")
-                    .stack()
-                    .swaplevel()
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            elif depth == 4:
-                return (
-                    pd.DataFrame(template_map)
-                    .reset_index()
-                    .astype("string")  # forces as string
-                    .set_index("index")
-                    .stack()
-                    .swaplevel()
-                    .apply(pd.Series)
-                    .stack()
-                    .rename_axis(map_to_column)
-                    .rename("TemplateName")
-                    .to_frame()
-                )
-            else:
-                raise NotImplementedError("5 levels or more are not yet supported")
+
+            def flatten(d, parent_key=(), level=1):
+                """from: https://stackoverflow.com/a/6027615."""
+                items = []
+                for k, v in d.items():
+                    new_key = (
+                        tuple(list(parent_key) + [k]) if parent_key else tuple([k])
+                    )
+                    if isinstance(v, collections.MutableMapping):
+                        items.extend(flatten(v, new_key, level=level - 1).items())
+                    elif level <= 2:
+                        items.append((new_key, v))
+                    else:
+                        new_key = tuple(list(new_key) + [None])
+                        items.append((new_key, v))
+                return dict(items)
+
+            flat_template_map = flatten(template_map, level=_dict_depth(template_map))
+            df = pd.Series(flat_template_map)
+            df.index = df.index.rename(map_to_columns)
+            return df.to_frame("TemplateName")
 
         _index = gdf.index
         if template_column_name is None:
-            if template_map and map_to_column:
-                # map templates using template_map. This adds a column named "TemplateName"
-                cols = gdf[map_to_column]
-                gdf = (
-                    gdf.astype({k: "string" for k in map_to_column})
-                    .set_index(map_to_column)
-                    .join(on_frame(map_to_column, template_map))
+            if template_map and map_to_columns:
+                # map templates using `template_map`. This updates the column named
+                # "TemplateName" using the keys of `map_to_columns`.
+                # DataFrame.join always uses other's index but we can use any column
+                # in df. This method preserves the original DataFrame's index in the
+                # result.
+
+                # Necessary to reset_index to map the dtype of the original DataFrame.
+                mapped_to = (
+                    on_frame(map_to_columns, template_map)
+                    .reset_index()
+                    .astype(gdf[map_to_columns].dtypes.to_dict())
+                    .set_index(map_to_columns)
                 )
-                gdf[map_to_column] = cols  # reset column dtypes to previous
+
+                # Apply the join.
+                gdf = gdf.join(mapped_to, on=map_to_columns, how="left")
             else:
                 raise ValueError(
                     "If `template_column_name` is None, `template_map` and "
-                    "`map_to_column` must be provided."
+                    "`map_to_columns` must be provided."
                 )
         else:
             # rename the user-defined template_column_name to the
@@ -453,7 +445,7 @@ class UmiProject:
                     return obj.Geometry
             else:
                 height = series[height_column_name]
-                return geom_to_brep(series.geometry, height)
+                return geom_to_brep(series.geometry, 0, height)
 
         gdf["rhino_geom"] = gdf.progress_apply(
             try_make_geom, args=(height_column_name,), axis=1
@@ -544,7 +536,7 @@ class UmiProject:
         to_crs=None,
         **kwargs,
     ):
-        """
+        """Todo Complete docstring.
 
         Args:
             input_file (path_or_buffer): cityjson buffer or path.
