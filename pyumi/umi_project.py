@@ -354,9 +354,13 @@ class UmiProject:
         if template_column_name is None:
             if template_map and map_to_column:
                 # map templates using template_map. This adds a column named "TemplateName"
-                gdf = gdf.set_index(map_to_column).join(
-                    on_frame(map_to_column, template_map), on=map_to_column
+                cols = gdf[map_to_column]
+                gdf = (
+                    gdf.astype({k: "string" for k in map_to_column})
+                    .set_index(map_to_column)
+                    .join(on_frame(map_to_column, template_map))
                 )
+                gdf[map_to_column] = cols  # reset column dtypes to previous
             else:
                 raise ValueError(
                     "If `template_column_name` is None, `template_map` and "
@@ -366,7 +370,7 @@ class UmiProject:
             # rename the user-defined template_column_name to the
             # umi one ("TemplateName")
             gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
-        gdf.index = _index
+        gdf.index = _index  # reset the index to previous
 
         # Filter rows; Display invalid geometries in log
         valid_geoms = gdf.geometry.is_valid
