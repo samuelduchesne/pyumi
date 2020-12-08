@@ -11,7 +11,7 @@ import time
 import uuid
 from io import TextIOWrapper
 from json import JSONDecodeError
-from sqlite3 import OperationalError
+from sqlite3 import Connection, OperationalError, Row
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
 
@@ -94,7 +94,6 @@ class UmiProject:
             gdf_world_projected if gdf_world_projected is not None else GeoDataFrame()
         )
         self.gdf_3dm = gdf_3dm if gdf_3dm is not None else GeoDataFrame()
-        self.tmp = Path(tempfile.mkdtemp(dir=Path("")))
 
         self.name = project_name
         self.file3dm = file3dm or File3dm()
@@ -106,13 +105,18 @@ class UmiProject:
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
 
         if isinstance(umi_sqlite, bytes):
-            with open(self.tmp / "umi.sqlite3", "wb") as f:
-                f.write(umi_sqlite)
-                umi_sqlite = None
-        if umi_sqlite is None:
-            con = connect(self.tmp / "umi.sqlite3")
+            con = connect(":memory:")
+            con.cursor().executescript(umi_sqlite)
+            con.commit()
+            con.row_factory = Row
+        elif isinstance(umi_sqlite, Connection):
+            con = umi_sqlite
+        elif isinstance(umi_sqlite, str):
+            source = connect(umi_sqlite)
+            con = connect(":memory:")
+            source.backup(con)
         else:
-            con = connect(Path(umi_sqlite).copy(self.tmp))
+            con = connect(":memory:")
         try:
             con.execute(create_nonplottable_setting)
             con.execute(create_object_name_assignement)
@@ -195,7 +199,6 @@ class UmiProject:
     def __del__(self):
         """Delete object."""
         self.umi_sqlite3.close()
-        self.tmp.rmtree_p()
 
     @classmethod
     def from_gis(
@@ -740,7 +743,17 @@ class UmiProject:
 
             # 4. make connection with umi.sqlite3
             with umizip.open("umi.sqlite3") as f:
-                umi_sqlite3 = f.read()
+                dump = tempfile.NamedTemporaryFile("wb", delete=False)
+                dump.write(f.read())  # dump to file
+                dump.close()
+                try:
+                    source = connect(dump.name)  # read source
+                    con = connect(":memory:")  # create memory db
+                    source.backup(con)  # backup (like a copy)
+                except ConnectionError:
+                    pass
+                finally:
+                    dump.close()
 
             # 5. Parse all the .json files in "sdl-common" folder
             sdl_common = {}  # prepare sdl_common dict
@@ -824,7 +837,7 @@ class UmiProject:
             to_crs=CRS.from_user_input(utm_crs),
             fid="id",
             sdl_common=sdl_common,
-            umi_sqlite=umi_sqlite3,
+            umi_sqlite=con,
             fast_open=fast_open,
         )
 
@@ -924,8 +937,9 @@ class UmiProject:
 
             # 1. Save the file3dm object to the archive.
             if self.file3dm is not None:
-                self.file3dm.Write(self.tmp / (name + ".3dm"), 6)
-                zip_archive.write(self.tmp / (name + ".3dm"), (name + ".3dm"))
+                self.file3dm.Write(name + ".3dm", 6)  # save to file
+                zip_archive.write(name + ".3dm", (name + ".3dm"))
+                os.remove(name + ".3dm")  # delete the file
 
             # 2. Save the epw object to the archive
             if self.epw:
@@ -953,7 +967,12 @@ class UmiProject:
 
             # 6. Commit sqlite3 db changes and copy to archive
             self.umi_sqlite3.commit()  # commit db changes
-            zip_archive.write(self.tmp / "umi.sqlite3", "umi.sqlite3")
+            db_archive = ZipInfo("umi.sqlite3")
+            dest = connect("umi-archive.sqlite3")
+            self.umi_sqlite3.backup(dest)
+            dest.close()
+            zip_archive.write("umi-archive.sqlite3", "umi.sqlite3")
+            os.remove("umi-archive.sqlite3")
 
         log.info(f"Saved to {outfile.abspath()}")
 
