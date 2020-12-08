@@ -513,9 +513,22 @@ class UmiProject:
                 ].Index
             obj3dm.Attributes.Name = str(series[fid])
 
+        def set_attributes(series):
+            """Set GIS attributes as UserData."""
+            # First, get the object.
+            obj3dm = umi_project.file3dm.Objects.FindId(series.guid)
+            # Then, iterate over series and assign.
+            for k, v in series.iteritems():
+                # Sets v as string on key k.
+                obj3dm.Attributes.SetUserString(k, str(v))
+
         umi_project.add_default_shoebox_settings()
 
         umi_project.update_umi_sqlite3()
+
+        # Set UserData Attributes on Breps
+        tqdm.pandas(desc="Setting attributes to Breps")
+        umi_project.gdf_3dm.progress_apply(set_attributes, axis=1)
 
         # Move Breps to layers (Buildings or Shading)
         tqdm.pandas(desc="Moving Breps on layers")
