@@ -354,6 +354,9 @@ class UmiProject:
                 # in df. This method preserves the original DataFrame's index in the
                 # result.
 
+                if not isinstance(map_to_columns, (tuple, list)):
+                    map_to_columns = [map_to_columns]
+
                 # Necessary to reset_index to map the dtype of the original DataFrame.
                 mapped_to = (
                     on_frame(map_to_columns, template_map)
