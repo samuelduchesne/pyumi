@@ -33,7 +33,7 @@ jobs:
           path: .cache/wheels
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
-            ${{ runner.os }}-pip
+            ${{ runner.os }}-pip-
       - name: Build Dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
