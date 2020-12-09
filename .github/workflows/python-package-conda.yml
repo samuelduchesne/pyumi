@@ -7,10 +7,9 @@ on:
     branches: [ master ]
 
 jobs:
-  build-linux:
+  build:
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 5
       matrix:
         python-version: [3.7]  # rhino3dm compatible only with == 3.7
 
@@ -24,17 +23,17 @@ jobs:
     - uses: actions/cache@v1
       id: cache
       with:
-        path: .cache/pip
+        path: .cache/wheels
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          ${{ runner.os }}-test
+          ${{ runner.os }}-pip
     - name: Build Dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
-        sudo pip wheel --wheel-dir=/wheels -r requirements.txt
+        pip wheel --wheel-dir=.cache/wheels -r requirements.txt
     - name: Install Dependencies
       run: |
-        pip install --no-index --find-links=/wheels -r requirements.txt
+        pip install --no-index --find-links=.cache/wheels -r requirements.txt
     - name: Lint with flake8
       run: |
         pip install flake8
