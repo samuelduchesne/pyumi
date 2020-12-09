@@ -7,7 +7,7 @@ here = os.getcwd()
 
 with open(path.join(here, "requirements.txt")) as f:
     requirements_lines = f.readlines()
-install_requires = [r.strip() for r in requirements_lines]
+install_requires = [r.strip() for r in requirements_lines if "git+" not in r]
 
 setup(
     name="pyumi",
