@@ -31,6 +31,7 @@ from path import Path
 from pyproj import CRS
 from rhino3dm import Brep, File3dm, Point3d, Point3dList, PolylineCurve
 from rhino3dm._rhino3dm import UnitSystem
+from shapely.geometry import Point
 from tabulate import tabulate
 from tqdm import tqdm
 
@@ -1407,27 +1408,29 @@ class Epw(epw):
             os.makedirs(path_to_save)
 
         # Get the list of EPW filenames and lat/lon
-        df = cls._return_epw_names()
+        gdf = cls._return_epw_names()
 
         # find the closest EPW file to the given lat/lon
         if (lat is not None) & (lon is not None):
-            url, name = cls._find_closest_epw(lat, lon, df)
+            url, name = cls._find_closest_epw(lat, lon, gdf)
 
             # download the EPW file to the local drive.
             log.info("Getting weather file: " + name)
             cls._download_epw_file(url, path_to_save, name)
-            epwfile = os.path.join("EPWs", name)
+            epw_file = os.path.join("EPWs", name)
 
-        return cls(epwfile)
+            return cls(epw_file)
 
     @staticmethod
     def _find_closest_epw(lat, lon, df):
         # locate the record with the nearest lat/lon
-        errorvec = np.sqrt(np.square(df.lat - lat) + np.square(df.lon - lon))
-        index = errorvec.idxmin()
-        url = df["url"][index]
-        name = df["name"][index]
-        return url, name
+        from shapely.ops import nearest_points
+
+        # find the nearest point and return the corresponding Place value
+        pts = df.unary_union
+        nearest = df.geometry == nearest_points(Point(lon, lat), pts)[1]
+
+        return df.loc[nearest, ["url", "title"]].iloc[0]
 
     @staticmethod
     def _return_epw_names():
@@ -1437,25 +1440,11 @@ class Epw(epw):
             verify=False,
         )
         data = r.json()  # metadata for available files
-        # download lat/lon and url details for each .epw file into a dataframe
-        df = pd.DataFrame({"url": [], "lat": [], "lon": [], "name": []})
-        for location in data["features"]:
-            match = re.search(r'href=[\'"]?([^\'" >]+)', location["properties"]["epw"])
-            if match:
-                url = match.group(1)
-                name = url[url.rfind("/") + 1:]
-                lontemp = location["geometry"]["coordinates"][0]
-                lattemp = location["geometry"]["coordinates"][1]
-                dftemp = pd.DataFrame(
-                    {
-                        "url": [url],
-                        "lat": [lattemp],
-                        "lon": [lontemp],
-                        "name": [name],
-                    }
-                )
-                df = df.append(dftemp, ignore_index=True)
-        return df
+        # download lat/lon and url details for each .epw file into a GeoDataFrame
+        gdf = gpd.GeoDataFrame.from_features(data)
+        gdf["url"] = gdf.epw.str.extract(r'href=[\'"]?([^\'" >]+)')
+        gdf.drop(columns=["epw", "ddy", "dir"], inplace=True)
+        return gdf
 
     @staticmethod
     def _download_epw_file(url, path_to_save, name):
@@ -1474,9 +1463,9 @@ class Epw(epw):
             # py2 and 3 compatible: binary write, encode text first
             with open(filename, "wb") as f:
                 f.write(r.text.encode("ascii", "ignore"))
-            print(" ... OK!")
+            log.debug(" ... OK!")
         else:
-            print(" connection error status code: %s" % (r.status_code))
+            log.error(" connection error status code: %s" % r.status_code)
             r.raise_for_status()
 
 
