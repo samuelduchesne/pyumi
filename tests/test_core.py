@@ -72,20 +72,21 @@ class TestUmiProject:
     )
     def test_multilevel(self, multi_attributes, map_to_columns):
         filename = Path("tests/oshkosh_demo.geojson")
-        epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
-        assert epw.exists()
         umi = UmiProject.from_gis(
             filename,
             "Height",
             template_lib=template_lib,
             template_map=multi_attributes,
             map_to_columns=map_to_columns,
-            epw=epw,
+            epw=None,
             fid="ID",
         )
         # save UmiProject to created package.
         umi.save()
+
+        # Assert ewp is downloaded for correct location
+        assert umi.epw.headers["LOCATION"][0] == "Wittman Rgnl"
 
     def test_from_cityjson(self):
         """TODO: Create test for cityjson to umi project"""

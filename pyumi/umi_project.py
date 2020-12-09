@@ -239,7 +239,7 @@ class UmiProject:
             template_map (dict): A dictionary of the relationship between the GIS
                 attribute column and a specific template name in the template library.
             map_to_columns (list of str): A list of column names to map templates to.
-            epw (str or path): The path of the epw file. Optional.
+            epw (str or path, optional): The path of the epw file. Optional.
             fid (str): Optional, the column name corresponding to the id of
                 each feature. If None, a serial id is created automatically.
             to_crs (dict): The output CRS to which the file will be
@@ -474,6 +474,12 @@ class UmiProject:
                 f"{time.time() - start_time:,.2f} seconds"
             )
         gdf = gdf.loc[~errored_brep, :]
+
+        if epw is None:
+            epw = Epw.from_nrel(
+                gdf_world.unary_union.convex_hull.centroid.y,
+                gdf_world.unary_union.convex_hull.centroid.x,
+            )
 
         # create the UmiProject object
         umi_project = cls(
