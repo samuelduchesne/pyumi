@@ -9,7 +9,8 @@ from rhino3dm import Brep, File3dm
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyumi.geom_ops import geom_to_brep
-from pyumi.umi_project import UmiProject, Epw
+from pyumi.umi_project import UmiProject
+from pyumi.epw import Epw
 
 
 class TestUmiProject:
@@ -261,12 +262,14 @@ class TestEpw:
     @pytest.fixture()
     def epw_buffer(self):
         """Yields an epw string."""
-        yield Epw._download_epw_file("https://energyplus.net/weather-download/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw")
+        yield Epw._download_epw_file(
+            "https://energyplus.net/weather-download/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw"
+        )
 
     @pytest.fixture()
     def epw_file(self, tmpdir_factory, epw_buffer):
         fn = tmpdir_factory.mktemp("epw").join("weather.epw")
-        fn.write('\n'.join(epw_buffer.read().splitlines()))
+        fn.write("\n".join(epw_buffer.read().splitlines()))
         yield fn.strpath
 
     def test_from_path(self, epw_file):
