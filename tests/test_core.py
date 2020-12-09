@@ -1,3 +1,4 @@
+import io
 import logging as lg
 import uuid
 
@@ -9,6 +10,7 @@ from shapely.geometry import MultiPolygon, Polygon
 
 from pyumi.geom_ops import geom_to_brep
 from pyumi.umi_project import UmiProject
+from pyumi.epw import Epw
 
 
 class TestUmiProject:
@@ -34,9 +36,14 @@ class TestUmiProject:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=TestUmiProject.depth2,
-                                  map_to_columns=["Use_Type"], epw=epw)
+        umi = UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=TestUmiProject.depth2,
+            map_to_columns=["Use_Type"],
+            epw=epw,
+        )
         # Add a Street Graph
         umi.add_street_graph(
             network_type="all_private", retain_all=True, clean_periphery=False
@@ -67,14 +74,21 @@ class TestUmiProject:
     )
     def test_multilevel(self, multi_attributes, map_to_columns):
         filename = Path("tests/oshkosh_demo.geojson")
-        epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
-        assert epw.exists()
-        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=multi_attributes,
-                                  map_to_columns=map_to_columns, epw=epw, fid="ID")
+        umi = UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=multi_attributes,
+            map_to_columns=map_to_columns,
+            epw=None,
+            fid="ID",
+        )
         # save UmiProject to created package.
         umi.save()
+
+        # Assert ewp is downloaded for correct location
+        assert umi.epw.headers["LOCATION"][0] == "Wittman Rgnl"
 
     def test_from_cityjson(self):
         """TODO: Create test for cityjson to umi project"""
@@ -127,9 +141,14 @@ class TestUmiProjectOps:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        yield UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=TestUmiProject.depth2,
-                                  map_to_columns="Use_Type", epw=epw)
+        yield UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=TestUmiProject.depth2,
+            map_to_columns="Use_Type",
+            epw=epw,
+        )
 
     def test_save_to_non_existent_path(self):
         umi = UmiProject()
@@ -235,3 +254,38 @@ class TestUmiLayers:
     def test_get_layer_by_id_none(self, umi_project):
         id = uuid.uuid1()
         assert umi_project.umiLayers.find_layer_from_id(id) is None
+
+
+class TestEpw:
+    """Tests for the Epw module."""
+
+    @pytest.fixture()
+    def epw_buffer(self):
+        """Yields an epw string."""
+        yield Epw._download_epw_file(
+            "https://energyplus.net/weather-download/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw"
+        )
+
+    @pytest.fixture()
+    def epw_file(self, tmpdir_factory, epw_buffer):
+        fn = tmpdir_factory.mktemp("epw").join("weather.epw")
+        fn.write("\n".join(epw_buffer.read().splitlines()))
+        yield fn.strpath
+
+    def test_from_path(self, epw_file):
+        epw = Epw(epw_file)
+        assert epw
+        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.as_str()
+
+    def test_from_io(self, epw_buffer):
+        epw = Epw(epw_buffer)
+        assert epw
+        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.as_str()
+
+    def test_from_nrel(self):
+        lat, lon = 42.361145, -71.057083
+        epw = Epw.from_nrel(lat, lon)
+        assert epw.headers["LOCATION"][0] == "Boston"
+        assert epw.as_str()

@@ -1,6 +1,5 @@
 """Module to handle umi projects as python objects."""
 import collections
-import csv
 import json
 import logging
 import math
@@ -15,12 +14,10 @@ from sqlite3 import Connection, OperationalError, Row
 from sqlite3.dbapi2 import connect
 from zipfile import ZipFile, ZipInfo
 
-import chardet
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
-from epw import epw
 from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
 from networkx import is_empty
@@ -30,9 +27,11 @@ from path import Path
 from pyproj import CRS
 from rhino3dm import Brep, File3dm, Point3d, Point3dList, PolylineCurve
 from rhino3dm._rhino3dm import UnitSystem
+from shapely.geometry import Point
 from tabulate import tabulate
 from tqdm import tqdm
 
+from pyumi.epw import Epw
 from pyumi.geom_ops import geom_to_brep, resolve_3dm_geom
 from pyumi.umi_layers import UmiLayers
 
@@ -237,7 +236,7 @@ class UmiProject:
             template_map (dict): A dictionary of the relationship between the GIS
                 attribute column and a specific template name in the template library.
             map_to_columns (list of str): A list of column names to map templates to.
-            epw (str or path): The path of the epw file. Optional.
+            epw (str or path, optional): The path of the epw file. Optional.
             fid (str): Optional, the column name corresponding to the id of
                 each feature. If None, a serial id is created automatically.
             to_crs (dict): The output CRS to which the file will be
@@ -472,6 +471,12 @@ class UmiProject:
                 f"{time.time() - start_time:,.2f} seconds"
             )
         gdf = gdf.loc[~errored_brep, :]
+
+        if epw is None:
+            epw = Epw.from_nrel(
+                gdf_world.unary_union.convex_hull.centroid.y,
+                gdf_world.unary_union.convex_hull.centroid.x,
+            )
 
         # create the UmiProject object
         umi_project = cls(
@@ -1179,28 +1184,6 @@ class UmiProject:
         return self
 
 
-def to_buffer(buffer_or_path):
-    """Get a buffer from a buffer or a path.
-
-    Args:
-        buffer_or_path (typing.StringIO or str):
-
-    Returns:
-        typing.StringIO
-    """
-    if isinstance(buffer_or_path, str):
-        if not os.path.isfile(buffer_or_path):
-            raise FileNotFoundError(f"no file found at given path: {buffer_or_path}")
-        path = buffer_or_path
-        with open(buffer_or_path, "rb") as f:
-            encoding = chardet.detect(f.read())
-        buffer = open(buffer_or_path, encoding=encoding["encoding"], errors="ignore")
-    else:
-        path = None
-        buffer = buffer_or_path
-    return path, buffer
-
-
 create_nonplottable_setting = """create table nonplottable_setting
 (
     key       TEXT not null,
@@ -1260,143 +1243,6 @@ class ComplexEncoder(json.JSONEncoder):
             return None
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
-
-
-class Epw(epw):
-    """A class to read Epw files."""
-
-    def __init__(self, path):
-        """Construct Epw object."""
-        super(Epw, self).__init__()
-        self.read(path)
-
-        self.name = path
-
-        if isinstance(path, (str, Path)):
-            path = open(path, newline="")
-        # if a TextIOWrapper, store the str
-        if isinstance(path, TextIOWrapper):
-            path.seek(0)
-            self._epw_io = path.read()
-            path.seek(0)
-
-        try:
-            path.close()
-        except Exception:
-            pass
-
-    def _read_headers(self, fp):
-        """Read the headers of an epw file.
-
-        Args:
-            - fp (str): the file path of the epw file
-
-        Returns:
-            - d (dict): a dictionary containing the header rows
-
-        """
-        d = {}
-        if isinstance(fp, str):
-            csvfile = open(fp, newline="")
-        else:
-            csvfile = fp
-        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
-        for row in csvreader:
-            if row[0].isdigit():
-                break
-            else:
-                d[row[0]] = row[1:]
-
-        return d
-
-    def _read_data(self, fp):
-        """Read the climate data of an epw file.
-
-        Args:
-            - fp (str): the file path of the epw file
-
-        Returns:
-            - df (pd.DataFrame): a DataFrame containing the climate data
-        """
-        names = [
-            "Year",
-            "Month",
-            "Day",
-            "Hour",
-            "Minute",
-            "Data Source and Uncertainty Flags",
-            "Dry Bulb Temperature",
-            "Dew Point Temperature",
-            "Relative Humidity",
-            "Atmospheric Station Pressure",
-            "Extraterrestrial Horizontal Radiation",
-            "Extraterrestrial Direct Normal Radiation",
-            "Horizontal Infrared Radiation Intensity",
-            "Global Horizontal Radiation",
-            "Direct Normal Radiation",
-            "Diffuse Horizontal Radiation",
-            "Global Horizontal Illuminance",
-            "Direct Normal Illuminance",
-            "Diffuse Horizontal Illuminance",
-            "Zenith Luminance",
-            "Wind Direction",
-            "Wind Speed",
-            "Total Sky Cover",
-            "Opaque Sky Cover (used if Horizontal IR Intensity missing)",
-            "Visibility",
-            "Ceiling Height",
-            "Present Weather Observation",
-            "Present Weather Codes",
-            "Precipitable Water",
-            "Aerosol Optical Depth",
-            "Snow Depth",
-            "Days Since Last Snowfall",
-            "Albedo",
-            "Liquid Precipitation Depth",
-            "Liquid Precipitation Quantity",
-        ]
-
-        first_row = self._first_row_with_climate_data(fp)
-        df = pd.read_csv(fp, skiprows=first_row, header=None, names=names)
-        return df
-
-    def _first_row_with_climate_data(self, fp):
-        """Find the first row with the climate data of an epw file.
-
-        Args:
-            fp (str): the file path of the epw file
-
-        Returns:
-            (int): the row number
-
-        """
-        if isinstance(fp, str):
-            csvfile = open(fp, newline="")
-        else:
-            csvfile = fp
-        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
-        for i, row in enumerate(csvreader):
-            if row[0].isdigit():
-                break
-        return i
-
-    @property
-    def name(self):
-        """Name of Epw file."""
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        if isinstance(value, TextIOWrapper):
-            self._name = value.name
-        elif isinstance(value, (str, Path)):
-            self._name = Path(value).basename()
-
-    def as_str(self):
-        """Return Epw as a string."""
-        # Todo: Epw, make sure modified string is returned. Needs parsing
-        #  fix of epw file
-        return self._epw_io
 
 
 class Energy:

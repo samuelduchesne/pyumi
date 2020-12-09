@@ -13,3 +13,4 @@ coverage
 path
 rhino3dm
 cjio
+git+https://github.com/building-energy/epw.git#egg=epw
