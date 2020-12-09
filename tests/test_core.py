@@ -8,7 +8,7 @@ from rhino3dm import Brep, File3dm
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyumi.geom_ops import geom_to_brep
-from pyumi.umi_project import UmiProject
+from pyumi.umi_project import UmiProject, Epw
 
 
 class TestUmiProject:
@@ -34,9 +34,14 @@ class TestUmiProject:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=TestUmiProject.depth2,
-                                  map_to_columns=["Use_Type"], epw=epw)
+        umi = UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=TestUmiProject.depth2,
+            map_to_columns=["Use_Type"],
+            epw=epw,
+        )
         # Add a Street Graph
         umi.add_street_graph(
             network_type="all_private", retain_all=True, clean_periphery=False
@@ -70,9 +75,15 @@ class TestUmiProject:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        umi = UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=multi_attributes,
-                                  map_to_columns=map_to_columns, epw=epw, fid="ID")
+        umi = UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=multi_attributes,
+            map_to_columns=map_to_columns,
+            epw=epw,
+            fid="ID",
+        )
         # save UmiProject to created package.
         umi.save()
 
@@ -127,9 +138,14 @@ class TestUmiProjectOps:
         epw = Path("tests/USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw")
         template_lib = Path("tests/BostonTemplateLibrary.json")
         assert epw.exists()
-        yield UmiProject.from_gis(filename, "Height", template_lib=template_lib,
-                                  template_map=TestUmiProject.depth2,
-                                  map_to_columns="Use_Type", epw=epw)
+        yield UmiProject.from_gis(
+            filename,
+            "Height",
+            template_lib=template_lib,
+            template_map=TestUmiProject.depth2,
+            map_to_columns="Use_Type",
+            epw=epw,
+        )
 
     def test_save_to_non_existent_path(self):
         umi = UmiProject()
@@ -235,3 +251,10 @@ class TestUmiLayers:
     def test_get_layer_by_id_none(self, umi_project):
         id = uuid.uuid1()
         assert umi_project.umiLayers.find_layer_from_id(id) is None
+
+
+class TestEpw:
+    def test_from_nrel(self):
+        lat, lon = 42.361145, -71.057083
+        epw = Epw.from_nrel(lat, lon)
+        assert epw.headers["LOCATION"][0] == "Boston"

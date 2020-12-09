@@ -19,6 +19,7 @@ import chardet
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import requests
 import shapely
 from epw import epw
 from fiona import supported_drivers as fiona_drivers
@@ -1397,6 +1398,86 @@ class Epw(epw):
         # Todo: Epw, make sure modified string is returned. Needs parsing
         #  fix of epw file
         return self._epw_io
+
+    @classmethod
+    def from_nrel(cls, lat, lon):
+        """Get EPW from NREL closest to lat, lon."""
+        path_to_save = "EPWs"  # create a directory and write the name of directory here
+        if not os.path.exists(path_to_save):
+            os.makedirs(path_to_save)
+
+        # Get the list of EPW filenames and lat/lon
+        df = cls._return_epw_names()
+
+        # find the closest EPW file to the given lat/lon
+        if (lat is not None) & (lon is not None):
+            url, name = cls._find_closest_epw(lat, lon, df)
+
+            # download the EPW file to the local drive.
+            log.info("Getting weather file: " + name)
+            cls._download_epw_file(url, path_to_save, name)
+            epwfile = os.path.join("EPWs", name)
+
+        return cls(epwfile)
+
+    @staticmethod
+    def _find_closest_epw(lat, lon, df):
+        # locate the record with the nearest lat/lon
+        errorvec = np.sqrt(np.square(df.lat - lat) + np.square(df.lon - lon))
+        index = errorvec.idxmin()
+        url = df["url"][index]
+        name = df["name"][index]
+        return url, name
+
+    @staticmethod
+    def _return_epw_names():
+        """Return a dataframe with the name, lat, lon, url of available files"""
+        r = requests.get(
+            "https://github.com/NREL/EnergyPlus/raw/develop/weather/master.geojson",
+            verify=False,
+        )
+        data = r.json()  # metadata for available files
+        # download lat/lon and url details for each .epw file into a dataframe
+        df = pd.DataFrame({"url": [], "lat": [], "lon": [], "name": []})
+        for location in data["features"]:
+            match = re.search(r'href=[\'"]?([^\'" >]+)', location["properties"]["epw"])
+            if match:
+                url = match.group(1)
+                name = url[url.rfind("/") + 1:]
+                lontemp = location["geometry"]["coordinates"][0]
+                lattemp = location["geometry"]["coordinates"][1]
+                dftemp = pd.DataFrame(
+                    {
+                        "url": [url],
+                        "lat": [lattemp],
+                        "lon": [lontemp],
+                        "name": [name],
+                    }
+                )
+                df = df.append(dftemp, ignore_index=True)
+        return df
+
+    @staticmethod
+    def _download_epw_file(url, path_to_save, name):
+
+        import requests
+        from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        hdr = {
+            "User-Agent": "Magic Browser",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        r = requests.get(url, verify=False, headers=hdr)
+        if r.ok:
+            filename = os.path.join(path_to_save, name)
+            # py2 and 3 compatible: binary write, encode text first
+            with open(filename, "wb") as f:
+                f.write(r.text.encode("ascii", "ignore"))
+            print(" ... OK!")
+        else:
+            print(" connection error status code: %s" % (r.status_code))
+            r.raise_for_status()
 
 
 class Energy:
