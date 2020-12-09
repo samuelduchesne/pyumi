@@ -1429,7 +1429,7 @@ class Epw(epw):
 
     @staticmethod
     def _find_closest_epw(lat, lon, df):
-        # locate the record with the nearest lat/lon
+        """Locate the record with the nearest lat/lon."""
         from shapely.ops import nearest_points
 
         # find the nearest point and return the corresponding Place value
@@ -1454,16 +1454,8 @@ class Epw(epw):
 
     @staticmethod
     def _download_epw_file(url, path_to_save, name):
-
-        import requests
-        from requests.packages.urllib3.exceptions import InsecureRequestWarning
-
-        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-        hdr = {
-            "User-Agent": "Magic Browser",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
-        r = requests.get(url, verify=False, headers=hdr)
+        """Download the url."""
+        r = requests.get(url)
         if r.ok:
             filename = os.path.join(path_to_save, name)
             # py2 and 3 compatible: binary write, encode text first
