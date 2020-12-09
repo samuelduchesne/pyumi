@@ -1,3 +1,4 @@
+import io
 import logging as lg
 import uuid
 
@@ -255,7 +256,33 @@ class TestUmiLayers:
 
 
 class TestEpw:
+    """Tests for the Epw module."""
+
+    @pytest.fixture()
+    def epw_buffer(self):
+        """Yields an epw string."""
+        yield Epw._download_epw_file("https://energyplus.net/weather-download/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw")
+
+    @pytest.fixture()
+    def epw_file(self, tmpdir_factory, epw_buffer):
+        fn = tmpdir_factory.mktemp("epw").join("weather.epw")
+        fn.write('\n'.join(epw_buffer.read().splitlines()))
+        yield fn.strpath
+
+    def test_from_path(self, epw_file):
+        epw = Epw(epw_file)
+        assert epw
+        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.as_str()
+
+    def test_from_io(self, epw_buffer):
+        epw = Epw(epw_buffer)
+        assert epw
+        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.as_str()
+
     def test_from_nrel(self):
         lat, lon = 42.361145, -71.057083
         epw = Epw.from_nrel(lat, lon)
         assert epw.headers["LOCATION"][0] == "Boston"
+        assert epw.as_str()

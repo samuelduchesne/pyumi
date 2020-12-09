@@ -1,6 +1,7 @@
 """Module to handle umi projects as python objects."""
 import collections
 import csv
+import io
 import json
 import logging
 import math
@@ -1273,25 +1274,19 @@ class ComplexEncoder(json.JSONEncoder):
 class Epw(epw):
     """A class to read Epw files."""
 
-    def __init__(self, path):
+    def __init__(self, buffer_or_path):
         """Construct Epw object."""
         super(Epw, self).__init__()
-        self.read(path)
 
-        self.name = path
+        # prepare buffer
+        _source_file_path, buffer = to_buffer(buffer_or_path)
 
-        if isinstance(path, (str, Path)):
-            path = open(path, newline="")
-        # if a TextIOWrapper, store the str
-        if isinstance(path, TextIOWrapper):
-            path.seek(0)
-            self._epw_io = path.read()
-            path.seek(0)
+        self.read(buffer)
 
-        try:
-            path.close()
-        except Exception:
-            pass
+        buffer.seek(0)
+        self._epw_io = buffer.read()
+        self.name = _source_file_path
+        buffer.close()
 
     def _read_headers(self, fp):
         """Read the headers of an epw file.
@@ -1395,7 +1390,7 @@ class Epw(epw):
 
     @name.setter
     def name(self, value):
-        if isinstance(value, TextIOWrapper):
+        if isinstance(value, (io.StringIO, TextIOWrapper)):
             self._name = value.name
         elif isinstance(value, (str, Path)):
             self._name = Path(value).basename()
@@ -1422,10 +1417,9 @@ class Epw(epw):
 
             # download the EPW file to the local drive.
             log.info("Getting weather file: " + name)
-            cls._download_epw_file(url, path_to_save, name)
-            epw_file = os.path.join("EPWs", name)
+            epw_str = cls._download_epw_file(url)
 
-            return cls(epw_file)
+            return cls(epw_str)
 
     @staticmethod
     def _find_closest_epw(lat, lon, df):
@@ -1440,7 +1434,7 @@ class Epw(epw):
 
     @staticmethod
     def _return_epw_names():
-        """Return a dataframe with the name, lat, lon, url of available files"""
+        """Return a dataframe with the name, lat, lon, url of available files."""
         r = requests.get(
             "https://github.com/NREL/EnergyPlus/raw/develop/weather/master.geojson",
             verify=False,
@@ -1453,15 +1447,13 @@ class Epw(epw):
         return gdf
 
     @staticmethod
-    def _download_epw_file(url, path_to_save, name):
-        """Download the url."""
+    def _download_epw_file(url):
+        """Download the url and return a buffer."""
         r = requests.get(url)
         if r.ok:
-            filename = os.path.join(path_to_save, name)
             # py2 and 3 compatible: binary write, encode text first
-            with open(filename, "wb") as f:
-                f.write(r.text.encode("ascii", "ignore"))
             log.debug(" ... OK!")
+            return io.StringIO(r.text)
         else:
             log.error(" connection error status code: %s" % r.status_code)
             r.raise_for_status()
