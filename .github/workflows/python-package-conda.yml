@@ -38,6 +38,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           pip install --upgrade pip
+          pip install wheel
           pip wheel --wheel-dir=.cache/wheels -r requirements.txt
       - name: Install Dependencies
         run: |
