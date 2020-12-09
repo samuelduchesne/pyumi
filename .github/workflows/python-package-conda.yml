@@ -31,7 +31,7 @@ jobs:
     - name: Build Dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
-        pip wheel --wheel-dir=/wheels -r requirements.txt
+        sudo pip wheel --wheel-dir=/wheels -r requirements.txt
     - name: Install Dependencies
       run: |
         pip install --no-index --find-links=/wheels -r requirements.txt
