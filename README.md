@@ -11,6 +11,7 @@
 - Download street networks from Open Street Map and use with the walkability module.
 - Download any Point of Interest (POI) from Open Street Map.
 - Automatically create a site boundary based on the convex hull of the GIS dataset extent.
+- Downloads EPW weather file closest to the location of the GIS dataset.
  
 ## GIS to UMI Workflow
 
