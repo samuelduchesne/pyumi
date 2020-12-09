@@ -28,10 +28,13 @@ jobs:
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-test
-    - name: Install Dependencies
+    - name: Build Dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
-        pip install -r requirements.txt
+        pip wheel --wheel-dir=/wheels -r requirements.txt
+    - name: Install Dependencies
+      run: |
+        pip install --no-index --find-links=/wheels -r requirements.txt
     - name: Lint with flake8
       run: |
         pip install flake8
