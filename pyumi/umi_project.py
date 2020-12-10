@@ -732,19 +732,30 @@ class UmiProject:
                 file3dm = File3dm.Read(Path(tempdir) / file3dm)
 
             # 2. Parse the weather file as :class:`Epw`
-            epw_file, *_ = (file for file in umizip.namelist() if ".epw" in file)
-            with umizip.open(epw_file) as f:
-                _str = TextIOWrapper(f, "utf-8", newline="")
-                epw = Epw(_str)
+            epw_file = next(
+                (file for file in umizip.namelist() if ".epw" in file), None
+            )
+            if epw_file:
+                with umizip.open(epw_file) as f:
+                    _str = TextIOWrapper(f, "utf-8", newline="")
+                    epw = Epw(_str, epw_file)
+            else:
+                epw = None  # maybe there is no epw in the zip folder
 
             # 3. Parse the templates library.
-            tmp_lib, *_ = (
-                file
-                for file in umizip.namelist()
-                if ".json" in file and "sdl-common" not in file
+            tmp_lib = next(
+                (
+                    file
+                    for file in umizip.namelist()
+                    if ".json" in file and "sdl-common" not in file
+                ),
+                None,
             )
-            with umizip.open(tmp_lib) as f:
-                template_lib = json.load(f)
+            if tmp_lib:
+                with umizip.open(tmp_lib) as f:
+                    template_lib = json.load(f)
+            else:
+                template_lib = None  # maybe there is no template_lib in the zip folder
 
             # 4. make connection with umi.sqlite3
             with umizip.open("umi.sqlite3") as f:
@@ -768,7 +779,7 @@ class UmiProject:
                 file for file in umizip.infolist() if "sdl-common" in file.filename
             ]:
                 if file.filename.endswith("project.json"):
-                    # This is the geojson representaiton of the
+                    # This is the geojson representation of the
                     # project.
 
                     # First, figure out the utm_crs for the weather location
