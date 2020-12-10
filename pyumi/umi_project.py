@@ -37,7 +37,7 @@ from pyumi.umi_layers import UmiLayers
 
 # create logger
 PYUMI_DRIVERS = []  # Todo: Specify future output formats here.
-log = logging.getLogger("pyumi.UmiProject")
+log = logging.getLogger(__name__)
 
 
 class UmiProject:

@@ -8,12 +8,14 @@ import chardet
 import geopandas as gpd
 import pandas as pd
 import requests
+import urllib3
 from epw import epw
 from path import Path
-
 from shapely.geometry import Point
 
 log = logging.getLogger(__name__)
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def to_buffer(buffer_or_path):

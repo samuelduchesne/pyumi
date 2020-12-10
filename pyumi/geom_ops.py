@@ -1,4 +1,5 @@
 """Module to hangle various geometry operations."""
+import logging
 
 import numpy as np
 import shapely
@@ -13,6 +14,8 @@ from rhino3dm import (
     PolylineCurve,
 )
 from rhino3dm._rhino3dm import ObjectColorSource
+
+log = logging.getLogger(__name__)
 
 
 def extract_poly_coords(geom):

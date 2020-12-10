@@ -1,8 +1,10 @@
 """Module to handle layers common to Umi projects and rhino3dm files."""
-
+import logging
 from itertools import accumulate
 
 from rhino3dm import File3dm, Layer
+
+log = logging.getLogger(__name__)
 
 
 class UmiLayers:
