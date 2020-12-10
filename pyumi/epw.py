@@ -43,14 +43,14 @@ def to_buffer(buffer_or_path):
 class Epw(epw):
     """A class to read Epw files."""
 
-    def __init__(self, buffer_or_path):
+    def __init__(self, buffer_or_path, name=None):
         """Construct Epw object."""
         super(Epw, self).__init__()
 
         # prepare buffer
         _source_file_path, buffer = to_buffer(buffer_or_path)
 
-        self.name = _source_file_path or "epw"
+        self.name = _source_file_path or name
         self.read(buffer)
 
         buffer.seek(0)
@@ -188,7 +188,7 @@ class Epw(epw):
             log.info("Getting weather file: " + name)
             epw_str = cls._download_epw_file(url)
 
-            return cls(epw_str)
+            return cls(epw_str, name + ".epw")
 
     @staticmethod
     def _find_closest_epw(lat, lon, df):
