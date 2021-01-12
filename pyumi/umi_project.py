@@ -1290,6 +1290,11 @@ class Energy:
             _name = re.sub(r"[^a-zA-Z0-9\n\.]", "_", name)  # valid name
             series_name = "_".join([resolution, _name]) if resolution else _name
 
+            # Skip cases where units are defined but not the resolution, e.g.:
+            # ('SDL/Domestic Hot Water', 'kWh', None) because this is an UMI bug.
+            if units and not resolution:
+                continue
+
             # sql query: takes in a couple columns from the 'series' and
             # joins in the data_point which contains the values and the
             # object_name_assignment which contains the building names.
