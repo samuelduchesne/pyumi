@@ -904,12 +904,20 @@ class UmiProject:
         world_crs = self.gdf_world._crs  # get utm crs
         exp_gdf = self.gdf_3dm.copy()  # make a copy
 
-        dtype_map = {self.fid: str, "guid": str}  # UUIDs as string
+        dtype_map = {self.fid: str}  # UUIDs as string
+        if "guid" in exp_gdf.columns:
+            # not all gdfs have a guid column; fix dtype here in this case.
+            dtype_map.update({"guid": str})
+
+        # apply type map
         exp_gdf.loc[:, list(dtype_map)] = exp_gdf.astype(dtype_map)
 
+        # extract centroid coordinates
         xdiff, ydiff = self.gdf_world_projected.unary_union.centroid.coords[0]
 
+        # translate gdf back to its location on earth
         exp_gdf.geometry = exp_gdf.translate(xdiff, ydiff)
+
         # Project the gdf to the world_crs
         from osmnx import project_gdf
 
