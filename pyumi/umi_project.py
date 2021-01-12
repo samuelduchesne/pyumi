@@ -489,9 +489,8 @@ class UmiProject:
             **kwargs,
         )
 
-        # Todo: Complete origin_unset stuff here
         umi_project.sdl_common.update(
-            {"project-settings": {"origin_unset": (world_centroid.x, world_centroid.y)}}
+            {"project-settings": {"OriginUnset": (world_centroid.x, world_centroid.y)}}
         )
 
         # Add all Breps to Model and append UUIDs to gdf
@@ -806,7 +805,7 @@ class UmiProject:
         # origin_unset value
         try:
             # First, look in project-settings
-            xoff, yoff = sdl_common["project-settings"]["origin_unset"]
+            xoff, yoff = sdl_common["project-settings"]["OriginUnset"]
             log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
         except KeyError:
             # Not defined in project-settings
