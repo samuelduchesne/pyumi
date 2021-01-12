@@ -144,7 +144,7 @@ def geom_to_face_with_hole(geom):
     return brep
 
 
-def resolve_3dm_geom(series, file3dm, on_file3dm_layer, fid, **kwargs):
+def resolve_3dm_geom(series, file3dm, on_file3dm_layer, fid):
     """Resolve a :class:`GeoSeries` to a rhino3dm object.
 
     Args:
@@ -169,7 +169,7 @@ def resolve_3dm_geom(series, file3dm, on_file3dm_layer, fid, **kwargs):
         guid = file3dm.Objects.AddPoint(geom.x, geom.y, 0)
         geom3dm = file3dm.Objects.FindId(guid)
         geom3dm.Attributes.LayerIndex = on_file3dm_layer.Index
-        geom3dm.Attributes.Name = str(series.osmid)
+        geom3dm.Attributes.Name = str(getattr(series, fid, ""))
         return guid
     elif isinstance(geom, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)):
         # if geom is a Polygon
