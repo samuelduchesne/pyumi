@@ -54,7 +54,7 @@ class UmiProject:
     DEFAULT_SHOEBOX_SETTINGS = {
         "CoreDepth": 3,
         "Envr": 1,
-        "Fdist": 0.01,
+        "Fdist": 1,  # 1 sensor every meter seems reasonable
         "FloorToFloorHeight": 3.0,
         "PerimeterOffset": 3.0,
         "RoomWidth": 3.0,
