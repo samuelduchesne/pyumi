@@ -345,7 +345,7 @@ class UmiProject:
             flat_template_map = flatten(template_map, level=_dict_depth(template_map))
             df = pd.Series(flat_template_map)
             df.index = df.index.rename(map_to_columns)
-            return df.to_frame("TemplateName")
+            return df.to_frame("TemplateName").astype("object")
 
         _index = gdf.index
         if template_column_name is None:
@@ -367,8 +367,11 @@ class UmiProject:
                     .set_index(map_to_columns)
                 )
 
-                # Apply the join.
-                gdf = gdf.join(mapped_to, on=map_to_columns, how="left")
+                # Instead of a join, which would fail if gdf already has some data
+                # for TemplateName, we use `update`
+                gdf.set_index(map_to_columns, inplace=True)
+                gdf.update(mapped_to)
+                gdf.reset_index(inplace=True)
             else:
                 raise ValueError(
                     "If `template_column_name` is None, `template_map` and "
