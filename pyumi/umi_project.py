@@ -438,8 +438,8 @@ class UmiProject:
             gdf_world_projected = gdf.copy()  # make a copy for reference
 
         # Move to center; Makes the Shoeboxer happy
-        world_centroid = gdf_world_projected.unary_union.convex_hull.centroid
-        xoff, yoff = world_centroid.x, world_centroid.y
+        projected_world_centroid = gdf_world_projected.unary_union.centroid
+        xoff, yoff = projected_world_centroid.x, projected_world_centroid.y
         gdf.geometry = gdf.translate(-xoff, -yoff)
 
         # Create Rhino Geometries in two steps
@@ -493,7 +493,7 @@ class UmiProject:
         )
 
         umi_project.sdl_common.update(
-            {"project-settings": {"OriginUnset": (world_centroid.x, world_centroid.y)}}
+            {"project-settings": {"OriginUnset": (projected_world_centroid.x, projected_world_centroid.y)}}
         )
 
         # Add all Breps to Model and append UUIDs to gdf
