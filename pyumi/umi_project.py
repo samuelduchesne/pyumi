@@ -476,10 +476,14 @@ class UmiProject:
         gdf = gdf.loc[~errored_brep, :]
 
         if epw is None:
-            epw = Epw.from_nrel(
-                gdf_world.unary_union.convex_hull.centroid.y,
-                gdf_world.unary_union.convex_hull.centroid.x,
-            )
+            try:
+                epw = Epw.from_nrel(
+                    gdf_world.unary_union.convex_hull.centroid.y,
+                    gdf_world.unary_union.convex_hull.centroid.x,
+                )
+            except Exception as e:
+                epw = None
+                log.error("Unable to retrieve weather file", exc_info=e)
 
         # create the UmiProject object
         umi_project = cls(
@@ -493,7 +497,14 @@ class UmiProject:
         )
 
         umi_project.sdl_common.update(
-            {"project-settings": {"OriginalProjectedOrigin": (projected_world_centroid.x, projected_world_centroid.y)}}
+            {
+                "project-settings": {
+                    "OriginalProjectedOrigin": (
+                        projected_world_centroid.x,
+                        projected_world_centroid.y,
+                    )
+                }
+            }
         )
 
         # Add all Breps to Model and append UUIDs to gdf
