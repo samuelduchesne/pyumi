@@ -1,10 +1,11 @@
 """Shoebox class."""
-from archetypal import IDF
-from archetypal.template import BuildingTemplate, ZoneConstructionSet
-from archetypal.umi_template import traverse
-from eppy.bunch_subclass import EpBunch
-from opyplus.epm.epm import Epm
+
 import logging
+
+from archetypal import IDF
+from archetypal.template import BuildingTemplate
+
+from pyumi.shoeboxer.hvac_templates import HVACTemplates
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -27,81 +28,32 @@ class ShoeBox(IDF):
     """Shoebox Model."""
 
     def __init__(self, *args, **kwargs):
+        """Initialize Shoebox."""
         super(ShoeBox, self).__init__(*args, **kwargs)
         pass
 
     @classmethod
-    def from_template(cls, name, building_template, **kwargs):
-        """
-
-        Args:
-            building_template (BuildingTemplate):
-
-        Returns:
-            ShoeBox: A shoebox for this building_template
-        """
-        idf = cls.minimal(name=name, **kwargs)
-
-        idf.add_block(
-            name="Core",
-            coordinates=[(10, 0), (10, 5), (0, 5), (0, 0)],
-            height=3,
-            num_stories=1,
-        )
-        idf.add_block(
-            name="Perim",
-            coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
-            height=3,
-            num_stories=1,
-        )
-
-        idf.intersect_match()
-
-        # Constructions
-        idf.set_default_constructions()
-
-        # Heating System
-        stat = idf.newidfobject(
-            "HVACTEMPLATE:THERMOSTAT",
-            Name="Zone Stat",
-            Constant_Heating_Setpoint=20,
-            # easy to change to Heating_Setpoint_Schedule_Name
-            Constant_Cooling_Setpoint=25,
-            # easy to change to Cooling_Setpoint_Schedule_Name
-        )
-
-        for zone in idf.idfobjects["ZONE"]:
-            idf.newidfobject(
-                "HVACTEMPLATE:ZONE:IDEALLOADSAIRSYSTEM",
-                Zone_Name=zone.Name,
-                Template_Thermostat_Name=stat.Name,
-            )
-        return idf
-
-    @classmethod
-    def minimal(cls, name=None, **kwargs):
-        """
+    def minimal(cls, **kwargs):
+        """Create the minimal viable IDF model.
 
         BUILDING, GlobalGeometryRules, LOCATION and DESIGNDAY (or RUNPERIOD) are the
         absolute minimal required input objects.
 
         Args:
-            name (str): Name of the Shoebox
-            **kwargs:
+            **kwargs: keyword arguments passed to the IDF constructor.
 
         Returns:
-
+            ShoeBox: The ShoeBox model.
         """
-        idf = cls(name=name, **kwargs)
+        idf = cls(**kwargs)
 
-        idf.newidfobject("BUILDING", Name="None")
+        idf.newidfobject("BUILDING", Name=idf.name or "None")
         idf.newidfobject(
             "GLOBALGEOMETRYRULES",
             Starting_Vertex_Position="UpperLeftCorner",
             Vertex_Entry_Direction="CounterClockWise",
             Coordinate_System="World",
         )
-        # idf.newidfobject("SITE:LOCATION")
         idf.newidfobject(
             "RUNPERIOD",
             Name="Run Period 1",
@@ -110,6 +62,76 @@ class ShoeBox(IDF):
             End_Month=12,
             End_Day_of_Month=31,
         )
-        idf.newidfobject("SIMULATIONCONTROL")
-
+        idf.newidfobject(
+            "SIMULATIONCONTROL",
+            Do_Zone_Sizing_Calculation="Yes",
+            Do_System_Sizing_Calculation="Yes",
+            Run_Simulation_for_Sizing_Periods="No",
+            Do_HVAC_Sizing_Simulation_for_Sizing_Periods="Yes",
+        )
         return idf
+
+    @classmethod
+    def from_template(
+        cls, building_template, system="SimpleIdealLoadsSystem", ddy_file=None, **kwargs
+    ):
+        """Create Shoebox from a template.
+
+        Args:
+            system (str): Name of HVAC system template. Default
+                :"SimpleIdealLoadsSystem".
+            building_template (BuildingTemplate):
+            ddy_file:
+
+        Returns:
+            ShoeBox: A shoebox for this building_template
+        """
+        idf = cls.minimal(**kwargs)
+
+        # Create Core box
+        idf.add_block(
+            name="Core",
+            coordinates=[(10, 0), (10, 5), (0, 5), (0, 0)],
+            height=3,
+            num_stories=1,
+        )
+        # Create Perimeter Box
+        idf.add_block(
+            name="Perim",
+            coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
+            height=3,
+            num_stories=1,
+        )
+        # Join adjacent walls
+        idf.intersect_match()
+
+        # Constructions
+        idf.set_default_constructions()
+
+        if ddy_file:
+            idf.add_sizing_design_day(ddy_file)
+
+        # add ground temperature
+        idf.newidfobject(
+            "Site:GroundTemperature:BuildingSurface".upper(),
+            January_Ground_Temperature=18,
+        )
+
+        # Heating System; create one for each zone.
+        for zone, zoneDefinition in zip(
+            idf.idfobjects["ZONE"],
+            [building_template.Core, building_template.Perimeter],
+        ):
+            HVACTemplates[system].create_from(zone, zoneDefinition)
+        return idf
+
+    def add_sizing_design_day(self, ddy_file):
+        """Read ddy file and copy objects over to self."""
+        ddy = IDF(
+            ddy_file, as_version="9.2.0", file_version="9.2.0", prep_outputs=False
+        )
+        for sequence in ddy.idfobjects.values():
+            if sequence:
+                for obj in sequence:
+                    self.addidfobject(obj)
+        del ddy
