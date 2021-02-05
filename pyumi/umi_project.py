@@ -380,6 +380,9 @@ class UmiProject:
         else:
             # rename the user-defined template_column_name to the
             # umi one ("TemplateName")
+            # first drop column if exists
+            gdf.drop(columns=["TemplateName"], errors="ignore", inplace=True)
+            # Then rename
             gdf.rename(columns={template_column_name: "TemplateName"}, inplace=True)
         gdf.index = _index  # reset the index to previous
 
