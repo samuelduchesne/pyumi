@@ -27,10 +27,10 @@ logger.addHandler(ch)
 class ShoeBox(IDF):
     """Shoebox Model."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, azimuth=180, **kwargs):
         """Initialize Shoebox."""
         super(ShoeBox, self).__init__(*args, **kwargs)
-        pass
+        self.azimuth = azimuth  # 0 is north
 
     @classmethod
     def minimal(cls, **kwargs):
@@ -105,8 +105,18 @@ class ShoeBox(IDF):
         # Join adjacent walls
         idf.intersect_match()
 
+        # split roof and ceiling:
+
         # Constructions
         idf.set_default_constructions()
+
+        # Add window construction
+        window = building_template.Windows.Construction.to_epbunch(idf)
+
+        # Set wwr
+        wwr_map = {0: 0, 90: 0, 180: 0, 270: 0}  # initialize wwr_map for orientation.
+        wwr_map.update({idf.azimuth: building_template.DefaultWindowToWallRatio})
+        idf.set_wwr(construction=window.Name, wwr_map=wwr_map, force=True)
 
         if ddy_file:
             idf.add_sizing_design_day(ddy_file)
