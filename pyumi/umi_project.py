@@ -18,6 +18,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from energy_pandas import EnergySeries, EnergyDataFrame
 from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
 from networkx import is_empty
@@ -1353,5 +1354,10 @@ class Energy:
 
                 # Todo: Change start date based on fist day of week set in
                 #  Weather file
-
-            setattr(self, series_name, ts)
+            if isinstance(ts, pd.Series):
+                es = EnergySeries(ts, units=units)
+            elif isinstance(ts, pd.DataFrame):
+                es = EnergyDataFrame(ts, units=units)
+            else:
+                raise ValueError()
+            setattr(self, series_name, es)
