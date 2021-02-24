@@ -88,7 +88,7 @@ class TestUmiProject:
         umi.save()
 
         # Assert ewp is downloaded for correct location
-        assert umi.epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert umi.epw.location.city == "Wittman Rgnl"
 
     def test_from_cityjson(self):
         """TODO: Create test for cityjson to umi project"""
@@ -275,17 +275,17 @@ class TestEpw:
     def test_from_path(self, epw_file):
         epw = Epw(epw_file)
         assert epw
-        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.location.city == "Wittman Rgnl"
         assert epw.as_str()
 
     def test_from_io(self, epw_buffer):
-        epw = Epw(epw_buffer)
+        epw = Epw.from_file_string(epw_buffer.read())
         assert epw
-        assert epw.headers["LOCATION"][0] == "Wittman Rgnl"
+        assert epw.location.city == "Wittman Rgnl"
         assert epw.as_str()
 
     def test_from_nrel(self):
         lat, lon = 42.361145, -71.057083
         epw = Epw.from_nrel(lat, lon)
-        assert epw.headers["LOCATION"][0] == "Boston"
+        assert epw.location.city == "Boston"
         assert epw.as_str()
