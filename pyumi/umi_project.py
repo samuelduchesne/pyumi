@@ -1293,6 +1293,10 @@ class Energy:
         tab = tabulate(totals, ("Available Series", "Totals"))
         return tab
 
+    def __getitem__(self, item):
+        """Get item."""
+        return self.__dict__[item]
+
     def _results(self):
         if self._df is None:
             con = self._umi_project.umi_sqlite3
