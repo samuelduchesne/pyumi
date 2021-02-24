@@ -1,9 +1,14 @@
+import codecs
 import os
 from os import path
 
 from setuptools import find_packages, setup
 
 here = os.getcwd()
+
+# Get the long description from the README file
+with codecs.open(path.join(here, "README.md"), encoding="utf-8") as f:
+    long_description = f.read()
 
 with open(path.join(here, "requirements.txt")) as f:
     requirements_lines = f.readlines()
@@ -23,6 +28,8 @@ setup(
     author="Samuel Letellier-Duchesne",
     author_email="samueld@mit.edu",
     description="Create and edit umi projects",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     python_requires=">=3.6",
     install_requires=install_requires,
     extras_require={"dev": dev_requires},
