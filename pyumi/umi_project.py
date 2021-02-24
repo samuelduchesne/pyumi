@@ -8,7 +8,6 @@ import re
 import tempfile
 import time
 import uuid
-from io import TextIOWrapper
 from json import JSONDecodeError
 from sqlite3 import Connection, OperationalError, Row
 from sqlite3.dbapi2 import connect
@@ -18,7 +17,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
-from energy_pandas import EnergySeries, EnergyDataFrame
+from energy_pandas import EnergyDataFrame, EnergySeries
 from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
 from networkx import is_empty
@@ -750,9 +749,8 @@ class UmiProject:
                 (file for file in umizip.namelist() if ".epw" in file), None
             )
             if epw_file:
-                with umizip.open(epw_file) as f:
-                    _str = TextIOWrapper(f, "utf-8", newline="")
-                    epw = Epw(_str, epw_file)
+                with umizip.open(epw_file, mode="r") as f:
+                    epw = Epw.from_file_string(f.read().decode())
             else:
                 epw = None  # maybe there is no epw in the zip folder
 
@@ -797,7 +795,7 @@ class UmiProject:
                     # project.
 
                     # First, figure out the utm_crs for the weather location
-                    lat, lon = epw.headers["LOCATION"][5:7]
+                    lat, lon = epw.location.latitude, epw.location.longitude
                     utm_zone = int(math.floor((float(lon) + 180) / 6.0) + 1)
                     utm_crs = CRS.from_string(
                         f"+proj=utm +zone={utm_zone} +ellps=WGS84 "
@@ -826,7 +824,7 @@ class UmiProject:
             # Not defined in project-settings
             if origin_unset is None:
                 # then use weather file location
-                lat, lon = map(float, epw.headers["LOCATION"][5:7])
+                lat, lon = epw.location.latitude, epw.location.longitude
                 log.warning(
                     "Since no 'origin_unset' is specified in the "
                     "project-settings, the world location is set to the "
@@ -1009,7 +1007,7 @@ class UmiProject:
             dest = connect("umi-archive.sqlite3")
             self.umi_sqlite3.backup(dest)
             dest.close()
-            zip_archive.write("umi-archive.sqlite3", "umi.sqlite3")
+            zip_archive.write("umi-archive.sqlite3", db_archive.filename)
             os.remove("umi-archive.sqlite3")
 
         log.info(f"Saved to {outfile.abspath()}")

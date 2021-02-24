@@ -1,4 +1,3 @@
-import csv
 import io
 import logging
 import os
@@ -6,10 +5,9 @@ from io import TextIOWrapper
 
 import chardet
 import geopandas as gpd
-import pandas as pd
 import requests
 import urllib3
-from epw import epw
+from ladybug.epw import EPW
 from path import Path
 from shapely.geometry import Point
 
@@ -40,122 +38,43 @@ def to_buffer(buffer_or_path):
     return path, buffer
 
 
-class Epw(epw):
-    """A class to read Epw files."""
+class Epw(EPW):
+    """A class to read Epw files.
 
-    def __init__(self, buffer_or_path, name=None):
+    Subclass of :class:`ladybug.epw.EPW`. It adds functionality to retrieve IDF
+    files by lat lon.
+    """
+
+    def __init__(self, buffer_or_path):
         """Construct Epw object."""
-        super(Epw, self).__init__()
+        super(Epw, self).__init__(buffer_or_path)
 
-        # prepare buffer
-        _source_file_path, buffer = to_buffer(buffer_or_path)
+        self.name = buffer_or_path
 
-        self.name = _source_file_path or name
-        self.read(buffer)
+    @staticmethod
+    def _is_path(buffer_or_path):
+        """Check if path or buffer."""
+        try:
+            exists = Path(buffer_or_path).exists()
+        except TypeError:
+            exists = False
+        return exists
 
-        buffer.seek(0)
-        self._epw_io = buffer.read()
-        buffer.close()
-
-    def _read_headers(self, fp):
-        """Read the headers of an epw file.
-
-        Args:
-            - fp (str): the file path of the epw file
-
-        Returns:
-            - d (dict): a dictionary containing the header rows
-
-        """
-        d = {}
-        if isinstance(fp, str):
-            csvfile = open(fp, newline="")
-        else:
-            csvfile = fp
-        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
-        for row in csvreader:
-            if row[0].isdigit():
-                break
-            else:
-                d[row[0]] = row[1:]
-
-        return d
-
-    def _read_data(self, fp):
-        """Read the climate data of an epw file.
-
-        Args:
-            - fp (str): the file path of the epw file
-
-        Returns:
-            - df (pd.DataFrame): a DataFrame containing the climate data
-        """
-        names = [
-            "Year",
-            "Month",
-            "Day",
-            "Hour",
-            "Minute",
-            "Data Source and Uncertainty Flags",
-            "Dry Bulb Temperature",
-            "Dew Point Temperature",
-            "Relative Humidity",
-            "Atmospheric Station Pressure",
-            "Extraterrestrial Horizontal Radiation",
-            "Extraterrestrial Direct Normal Radiation",
-            "Horizontal Infrared Radiation Intensity",
-            "Global Horizontal Radiation",
-            "Direct Normal Radiation",
-            "Diffuse Horizontal Radiation",
-            "Global Horizontal Illuminance",
-            "Direct Normal Illuminance",
-            "Diffuse Horizontal Illuminance",
-            "Zenith Luminance",
-            "Wind Direction",
-            "Wind Speed",
-            "Total Sky Cover",
-            "Opaque Sky Cover (used if Horizontal IR Intensity missing)",
-            "Visibility",
-            "Ceiling Height",
-            "Present Weather Observation",
-            "Present Weather Codes",
-            "Precipitable Water",
-            "Aerosol Optical Depth",
-            "Snow Depth",
-            "Days Since Last Snowfall",
-            "Albedo",
-            "Liquid Precipitation Depth",
-            "Liquid Precipitation Quantity",
-        ]
-
-        first_row = self._first_row_with_climate_data(fp)
-        df = pd.read_csv(fp, skiprows=first_row, header=None, names=names)
-        return df
-
-    def _first_row_with_climate_data(self, fp):
-        """Find the first row with the climate data of an epw file.
-
-        Args:
-            fp (str): the file path of the epw file
-
-        Returns:
-            (int): the row number
-
-        """
-        if isinstance(fp, str):
-            csvfile = open(fp, newline="")
-        else:
-            csvfile = fp
-        csvreader = csv.reader(csvfile, delimiter=",", quotechar='"')
-        for i, row in enumerate(csvreader):
-            if row[0].isdigit():
-                break
-        return i
+    @property
+    def headers(self):
+        return self.header
 
     @property
     def name(self):
-        """Name of Epw file."""
-        return self._name
+        """Name of Epw file.
+
+        Examples:
+            "USA_MA_Boston-Logan.Intl.AP.725090_TMY3.epw"
+        """
+        return (
+            f"{self.location.country}_{self.location.state}-{self.location.city}."
+            f"{self.location.station_id}_{self.location.source}.epw"
+        )
 
     @name.setter
     def name(self, value):
@@ -165,10 +84,8 @@ class Epw(epw):
             self._name = Path(value).basename()
 
     def as_str(self):
-        """Return Epw as a string."""
-        # Todo: Epw, make sure modified string is returned. Needs parsing
-        #  fix of epw file
-        return self._epw_io
+        """Get a text string for the entirety of the EPW file contents."""
+        return self.to_file_string()
 
     @classmethod
     def from_nrel(cls, lat, lon):
@@ -188,7 +105,7 @@ class Epw(epw):
             log.info("Getting weather file: " + name)
             epw_str = cls._download_epw_file(url)
 
-            return cls(epw_str, name + ".epw")
+            return cls.from_file_string(epw_str.read())
 
     @staticmethod
     def _find_closest_epw(lat, lon, df):
