@@ -2,7 +2,7 @@ tqdm>=4.50.2
 osmnx>=0.16.1
 tabulate>=0.8.8
 path>=15.0.0
-rhino3dm>=0.13.0
+rhino3dm==0.14.0
 cjio>=0.6.6
 energy-pandas>=0.1.0
 git+https://github.com/building-energy/epw.git#egg=epw
