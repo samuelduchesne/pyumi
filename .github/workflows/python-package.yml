@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       
-      - uses: actions/cache@v1
+      - uses: actions/cache@v2
         id: cache
         with:
           path: .cache/wheels
@@ -37,20 +37,21 @@ jobs:
       - name: Build Dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          pip install --upgrade pip
-          pip install wheel
-          pip wheel --wheel-dir=.cache/wheels -r requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install wheel
+          python -m pip wheel --wheel-dir=.cache/wheels -r requirements.txt
       - name: Install Dependencies
         run: |
-          pip install --no-index --find-links=.cache/wheels -r requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install --no-index --find-links=.cache/wheels -r requirements.txt
       - name: Lint with flake8
         run: |
-          pip install flake8
+          python -m pip install flake8
           # stop the build if there are Python syntax errors or undefined names
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       - name: Test with pytest
         run: |
-          pip install pytest
-          pytest
+          python -m pip install pytest-cov pytest-xdist[psutil]
+          python -m pytest -n auto
