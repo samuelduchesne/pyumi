@@ -5,4 +5,4 @@ path>=15.0.0
 rhino3dm==0.14.0
 cjio>=0.6.6
 energy-pandas>=0.1.0
-ladybug_core==0.37.7
+ladybug_core==0.37.9
