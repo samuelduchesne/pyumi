@@ -19,7 +19,7 @@ jobs:
           set -e
           uname -a
           sudo -E apt-get update
-          sudo -E apt-get -y install build-essential python-dev protobuf-compiler libprotobuf-dev libtokyocabinet-dev python-psycopg2 libgeos-dev libgdal-dev libspatialindex-dev cmake
+          sudo -E apt-get -y install build-essential python-dev protobuf-compiler libprotobuf-dev libtokyocabinet-dev libgeos-dev libgdal-dev libspatialindex-dev cmake
       
       - uses: actions/checkout@v2
       - name: Setup python ${{ matrix.python-version }}
