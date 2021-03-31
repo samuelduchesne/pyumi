@@ -1,8 +1,8 @@
-tqdm>=4.50.2
-osmnx>=0.16.1
-tabulate>=0.8.8
-path>=15.0.0
+tqdm==4.59.0
+osmnx==1.0.1
+tabulate==0.8.9
+path==15.1.2
 rhino3dm==0.14.0
-cjio>=0.6.6
-energy-pandas>=0.1.0
+cjio==0.6.8
+energy-pandas==0.2.1
 ladybug_core==0.38.0
