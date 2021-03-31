@@ -4,13 +4,13 @@ channels:
 dependencies:
   # required
   - python==3.7  # 3.7 required by rhino3dm
-  - tqdm  # for progress bar
-  - osmnx  # comes with all the geos stuff
-  - ipykernel  # For Jupyter Notebooks
-  - tabulate  # for repr
+  - tqdm==4.59.0  # for progress bar
+  - osmnx==1.0.1  # comes with all the geos stuff
+  - ipykernel==5.5.3  # For Jupyter Notebooks
+  - tabulate==0.8.9  # for repr
   
   # code checks
-  - isort>=5.2.1  # check that imports are in the right order
+  - isort  # check that imports are in the right order
   - black
   
   # documentation
@@ -26,7 +26,6 @@ dependencies:
   # Other
   - pip
   - pip:
-    - path  # pathlib wrapper
-    - rhino3dm  # duh
-    - git+https://github.com/building-energy/epw.git#egg=epw  # for parsing epw files
-    - cjio  # Reading CityJson
+    - path==15.1.2  # pathlib wrapper
+    - rhino3dm==0.14.0  # duh
+    - cjio==0.6.8  # Reading CityJson
