@@ -1,9 +1,12 @@
 """Shoebox class."""
-
+import functools
 import logging
+import operator
 
 from archetypal import IDF
-from archetypal.template import BuildingTemplate
+from archetypal.template.building_template import BuildingTemplate
+from archetypal.template.opaque_construction import OpaqueConstruction
+from archetypal.template.window import WindowConstruction
 
 from pyumi.shoeboxer.hvac_templates import HVACTemplates
 
@@ -127,12 +130,23 @@ class ShoeBox(IDF):
             January_Ground_Temperature=18,
         )
 
+        # add internal gains
+        zone_name = idf.idfobjects["ZONE"][0].Name
+        building_template.Perimeter.Loads.to_epbunch(
+            idf, zone_name
+        )
+
         # Heating System; create one for each zone.
         for zone, zoneDefinition in zip(
             idf.idfobjects["ZONE"],
             [building_template.Core, building_template.Perimeter],
         ):
             HVACTemplates[system].create_from(zone, zoneDefinition)
+
+        # infiltration
+        building_template.Perimeter.Ventilation.to_epbunch(
+            idf, zone_name
+        )
         return idf
 
     def add_sizing_design_day(self, ddy_file):
