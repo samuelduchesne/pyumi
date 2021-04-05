@@ -19,7 +19,7 @@ class TestShoebox:
     def building_template(self, template):
         yield next(iter(template.BuildingTemplates))
 
-    def test_from_template(self, building_template):
+    def test_from_template(self, building_template, template):
         name = "test.idf"
         sb = ShoeBox.from_template(building_template,
                                    ddy_file="tests/CAN_PQ_Montreal.Intl.AP.716270_CWEC.ddy",
