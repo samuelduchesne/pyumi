@@ -119,7 +119,7 @@ class ShoeBox(IDF):
         # Set wwr
         wwr_map = {0: 0, 90: 0, 180: 0, 270: 0}  # initialize wwr_map for orientation.
         wwr_map.update({idf.azimuth: building_template.DefaultWindowToWallRatio})
-        idf.set_wwr(construction=window.Name, wwr_map=wwr_map, force=True)
+        set_wwr(idf, construction=window.Name, wwr_map=wwr_map, force=False)
 
         if ddy_file:
             idf.add_sizing_design_day(ddy_file)
@@ -159,3 +159,81 @@ class ShoeBox(IDF):
                 for obj in sequence:
                     self.addidfobject(obj)
         del ddy
+
+
+def set_wwr(
+    idf, wwr=0.2, construction=None, force=False, wwr_map=None, orientation=None
+):
+    # type: (IDF, Optional[float], Optional[str], Optional[bool], Optional[dict], Optional[str]) -> None
+    """Set the window to wall ratio on all external walls.
+
+    :param idf: The IDF to edit.
+    :param wwr: The window to wall ratio.
+    :param construction: Name of a window construction.
+    :param force: True to remove all subsurfaces before setting the WWR.
+    :param wwr_map: Mapping from wall orientation (azimuth) to WWR, e.g. {180: 0.25, 90: 0.2}.
+    :param orientation: One of "north", "east", "south", "west". Walls within 45 degrees will be affected.
+
+    Todo: replace with original package method when PR is accepted.
+    """
+    try:
+        ggr = idf.idfobjects["GLOBALGEOMETRYRULES"][0]  # type: Optional[Idf_MSequence]
+    except IndexError:
+        ggr = None
+
+    # check orientation
+    orientations = {
+        "north": 0.0,
+        "east": 90.0,
+        "south": 180.0,
+        "west": 270.0,
+        None: None,
+    }
+    degrees = orientations.get(orientation, None)
+    external_walls = filter(
+        lambda x: x.Outside_Boundary_Condition.lower() == "outdoors",
+        idf.getsurfaces("wall"),
+    )
+    external_walls = filter(
+        lambda x: _has_correct_orientation(x, degrees), external_walls
+    )
+    subsurfaces = idf.getsubsurfaces()
+    base_wwr = wwr
+    for wall in external_walls:
+        # get any subsurfaces on the wall
+        wall_subsurfaces = list(
+            filter(lambda x: x.Building_Surface_Name == wall.Name, subsurfaces)
+        )
+        if not all(_is_window(wss) for wss in wall_subsurfaces) and not force:
+            raise ValueError(
+                'Not all subsurfaces on wall "{name}" are windows. '
+                "Use `force=True` to replace all subsurfaces.".format(name=wall.Name)
+            )
+
+        if wall_subsurfaces and not construction:
+            constructions = list(
+                {wss.Construction_Name for wss in wall_subsurfaces if _is_window(wss)}
+            )
+            if len(constructions) > 1:
+                raise ValueError(
+                    'Not all subsurfaces on wall "{name}" have the same construction'.format(
+                        name=wall.Name
+                    )
+                )
+            construction = constructions[0]
+        # remove all subsurfaces
+        for ss in wall_subsurfaces:
+            idf.removeidfobject(ss)
+        wwr = (wwr_map or {}).get(wall.azimuth, base_wwr)
+        if not wwr:
+            continue
+        coords = window_vertices_given_wall(wall, wwr)
+        window = idf.newidfobject(
+            "FENESTRATIONSURFACE:DETAILED",
+            Name="%s window" % wall.Name,
+            Surface_Type="Window",
+            Construction_Name=construction or "",
+            Building_Surface_Name=wall.Name,
+            View_Factor_to_Ground="autocalculate",  # from the surface angle
+        )
+        window.setcoords(coords, ggr)
