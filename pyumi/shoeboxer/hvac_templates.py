@@ -23,6 +23,13 @@ class SimpleIdealLoadsSystem(HVACTemplate):
     OPTIONAL = []
 
     def create_from(self, zone, zoneDefinition):
+        """Create SimpleIdealLoadsSystem.
+
+        Args:
+            zone (EpBunch): The zone EpBunch object.
+            zoneDefinition (ZoneDefinition): The archetypal template ZoneDefinition
+                object.
+        """
         idf = zone.theidf
         stat = idf.newidfobject(
             "HVACTEMPLATE:THERMOSTAT",
@@ -31,9 +38,37 @@ class SimpleIdealLoadsSystem(HVACTemplate):
             Constant_Cooling_Setpoint=zoneDefinition.Conditioning.CoolingSetpoint,
         )
         idf.newidfobject(
-            "HVACTEMPLATE:ZONE:IDEALLOADSAIRSYSTEM",
+            key="HVACTEMPLATE:ZONE:IDEALLOADSAIRSYSTEM",
             Zone_Name=zone.Name,
             Template_Thermostat_Name=stat.Name,
+            System_Availability_Schedule_Name="",
+            Maximum_Heating_Supply_Air_Temperature="50",
+            Minimum_Cooling_Supply_Air_Temperature="13",
+            Maximum_Heating_Supply_Air_Humidity_Ratio="0.0156",
+            Minimum_Cooling_Supply_Air_Humidity_Ratio="0.0077",
+            Heating_Limit=zoneDefinition.Conditioning.HeatingLimitType.name,
+            Maximum_Heating_Air_Flow_Rate=zoneDefinition.Conditioning.MaxHeatFlow,
+            Maximum_Sensible_Heating_Capacity=zoneDefinition.Conditioning.MaxHeatingCapacity,
+            Cooling_Limit=zoneDefinition.Conditioning.CoolingLimitType.name,
+            Maximum_Cooling_Air_Flow_Rate=zoneDefinition.Conditioning.MaxCoolFlow,
+            Maximum_Total_Cooling_Capacity=zoneDefinition.Conditioning.MaxCoolingCapacity,
+            Heating_Availability_Schedule_Name="",
+            Cooling_Availability_Schedule_Name="",
+            Dehumidification_Control_Type="ConstantSensibleHeatRatio",
+            Cooling_Sensible_Heat_Ratio="0.7",
+            Dehumidification_Setpoint=60.0,
+            Humidification_Control_Type="None",
+            Humidification_Setpoint=30.0,
+            Outdoor_Air_Method="Sum",
+            Outdoor_Air_Flow_Rate_per_Person=zoneDefinition.Conditioning.MinFreshAirPerPerson,
+            Outdoor_Air_Flow_Rate_per_Zone_Floor_Area=zoneDefinition.Conditioning.MinFreshAirPerArea,
+            Outdoor_Air_Flow_Rate_per_Zone=0.0,
+            Design_Specification_Outdoor_Air_Object_Name=f"Zone {zone.Name} Outdoor Air",
+            Demand_Controlled_Ventilation_Type="None",
+            Outdoor_Air_Economizer_Type=zoneDefinition.Conditioning.EconomizerType.name,
+            Heat_Recovery_Type=zoneDefinition.Conditioning.HeatRecoveryType.name,
+            Sensible_Heat_Recovery_Effectiveness=zoneDefinition.Conditioning.HeatRecoveryEfficiencySensible,
+            Latent_Heat_Recovery_Effectiveness=zoneDefinition.Conditioning.HeatRecoveryEfficiencyLatent,
         )
 
 
