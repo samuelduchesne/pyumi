@@ -4,6 +4,7 @@ from typing import Optional
 
 from archetypal import IDF
 from archetypal.template.building_template import BuildingTemplate
+from archetypal.template.zonedefinition import InternalMass
 from eppy.idf_msequence import Idf_MSequence
 from geomeppy.recipes import (
     _has_correct_orientation,
@@ -85,7 +86,7 @@ class ShoeBox(IDF):
         ddy_file=None,
         height=3,
         number_of_stories=1,
-        **kwargs
+        **kwargs,
     ):
         """Create Shoebox from a template.
 
@@ -153,6 +154,27 @@ class ShoeBox(IDF):
             [building_template.Core, building_template.Perimeter],
         ):
             HVACTemplates[system].create_from(zone, zoneDefinition)
+
+        # Internal mass
+        for zone, zoneDefinition in zip(
+            idf.idfobjects["ZONE"],
+            [building_template.Core, building_template.Perimeter],
+        ):
+            # Calculate zone area
+            floor_area = 0
+            for zone in idf.idfobjects["ZONE"]:
+                for surface in zone.zonesurfaces:
+                    if surface.Surface_Type.lower() == "floor":
+                        floor_area += surface.area
+
+            # Create InternalMass object, then convert to EpBunch.
+            internal_mass = InternalMass(
+                surface_name="{zone.Name} InternalMass",
+                construction=building_template.Core.InternalMassConstruction,
+                total_area_exposed_to_zone=floor_area
+                * building_template.Core.InternalMassExposedPerFloorArea,
+            )
+            internal_mass.to_epbunch(idf, zone.Name)
 
         # infiltration, only `window` surfaces are considered.
         window_area = 0
