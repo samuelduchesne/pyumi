@@ -1,12 +1,15 @@
 """Shoebox class."""
-import functools
 import logging
-import operator
+from typing import Optional
 
 from archetypal import IDF
 from archetypal.template.building_template import BuildingTemplate
-from archetypal.template.opaque_construction import OpaqueConstruction
-from archetypal.template.window import WindowConstruction
+from eppy.idf_msequence import Idf_MSequence
+from geomeppy.recipes import (
+    _has_correct_orientation,
+    _is_window,
+    window_vertices_given_wall,
+)
 
 from pyumi.shoeboxer.hvac_templates import HVACTemplates
 
@@ -76,7 +79,13 @@ class ShoeBox(IDF):
 
     @classmethod
     def from_template(
-        cls, building_template, system="SimpleIdealLoadsSystem", ddy_file=None, **kwargs
+        cls,
+        building_template,
+        system="SimpleIdealLoadsSystem",
+        ddy_file=None,
+        height=3,
+        number_of_stories=1,
+        **kwargs
     ):
         """Create Shoebox from a template.
 
@@ -95,15 +104,19 @@ class ShoeBox(IDF):
         idf.add_block(
             name="Core",
             coordinates=[(10, 0), (10, 5), (0, 5), (0, 0)],
-            height=3,
-            num_stories=1,
+            height=height,
+            num_stories=number_of_stories,
+            zoning="by_storey",
+            perim_depth=3,
         )
         # Create Perimeter Box
         idf.add_block(
             name="Perim",
             coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
-            height=3,
-            num_stories=1,
+            height=height,
+            num_stories=number_of_stories,
+            zoning="by_storey",
+            perim_depth=3,
         )
         # Join adjacent walls
         idf.intersect_match()
@@ -132,9 +145,7 @@ class ShoeBox(IDF):
 
         # add internal gains
         zone_name = idf.idfobjects["ZONE"][0].Name
-        building_template.Perimeter.Loads.to_epbunch(
-            idf, zone_name
-        )
+        building_template.Perimeter.Loads.to_epbunch(idf, zone_name)
 
         # Heating System; create one for each zone.
         for zone, zoneDefinition in zip(
@@ -143,9 +154,17 @@ class ShoeBox(IDF):
         ):
             HVACTemplates[system].create_from(zone, zoneDefinition)
 
-        # infiltration
+        # infiltration, only `window` surfaces are considered.
+        window_area = 0
+        opening_area_ratio = building_template.Windows.OperableArea
+        for zone in idf.idfobjects["ZONE"]:
+            for surface in zone.zonesurfaces:
+                for sub_surface in surface.subsurfaces:
+                    if sub_surface.Surface_Type.lower() == "window":
+                        window_area += sub_surface.area
+
         building_template.Perimeter.Ventilation.to_epbunch(
-            idf, zone_name
+            idf, zone_name, opening_area=window_area * opening_area_ratio
         )
         return idf
 
