@@ -4,5 +4,5 @@ tabulate==0.8.9
 path==15.1.2
 rhino3dm==0.14.0
 cjio==0.6.8
-energy-pandas==0.2.1
+energy-pandas==0.2.2
 ladybug_core==0.39.2
