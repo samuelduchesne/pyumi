@@ -6,6 +6,8 @@ from io import TextIOWrapper
 import chardet
 import geopandas as gpd
 import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 import urllib3
 from ladybug.epw import EPW
 from path import Path
@@ -14,6 +16,35 @@ from shapely.geometry import Point
 log = logging.getLogger(__name__)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+DEFAULT_TIMEOUT = 5  # seconds
+
+
+class TimeoutHTTPAdapter(HTTPAdapter):
+    def __init__(self, *args, **kwargs):
+        self.timeout = DEFAULT_TIMEOUT
+        if "timeout" in kwargs:
+            self.timeout = kwargs["timeout"]
+            del kwargs["timeout"]
+        super().__init__(*args, **kwargs)
+
+    def send(self, request, **kwargs):
+        timeout = kwargs.get("timeout")
+        if timeout is None:
+            kwargs["timeout"] = self.timeout
+        return super().send(request, **kwargs)
+
+
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[403, 429, 500, 502, 503, 504],
+    method_whitelist=["HEAD", "GET", "OPTIONS"],
+    backoff_factor=1,
+)
+adapter = TimeoutHTTPAdapter(max_retries=retry_strategy)
+http = requests.Session()
+http.mount("https://", adapter)
+http.mount("http://", adapter)
 
 
 def to_buffer(buffer_or_path):
@@ -121,7 +152,7 @@ class Epw(EPW):
     @staticmethod
     def _return_epw_names():
         """Return a dataframe with the name, lat, lon, url of available files."""
-        r = requests.get(
+        r = http.get(
             "https://github.com/NREL/EnergyPlus/raw/develop/weather/master.geojson",
             verify=False,
         )
@@ -135,7 +166,7 @@ class Epw(EPW):
     @staticmethod
     def _download_epw_file(url):
         """Download the url and return a buffer."""
-        r = requests.get(url)
+        r = http.get(url)
         if r.ok:
             # py2 and 3 compatible: binary write, encode text first
             log.debug(" ... OK!")
