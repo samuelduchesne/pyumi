@@ -102,6 +102,7 @@ class BaseboardHeatingSystem(HVACTemplate):
     OPTIONAL = ["HVACTemplate:Plant:HotWaterLoop", "HVACTemplate:Plant:Boiler"]
 
     def create_from(self, zone, zoneDefinition):
+        """Create the hvac template from the Zone EpBunch and the ZoneDefiniion."""
         idf = zone.theidf
         stat = idf.newidfobject(
             "HVACTEMPLATE:THERMOSTAT",
@@ -110,8 +111,18 @@ class BaseboardHeatingSystem(HVACTemplate):
             Constant_Cooling_Setpoint=zoneDefinition.Conditioning.CoolingSetpoint,
         )
         idf.newidfobject(
-            "HVACTEMPLATE:ZONE:BASEBOARDHEAT",
-            Thermostat_Name=stat,
+            key="HVACTEMPLATE:ZONE:BASEBOARDHEAT",
+            Zone_Name=zone.Name,
+            Template_Thermostat_Name=stat.Name,
+            Zone_Heating_Sizing_Factor="",
+            Baseboard_Heating_Type="HotWater",
+            Baseboard_Heating_Availability_Schedule_Name="",
+            Baseboard_Heating_Capacity="autosize",
+            Dedicated_Outdoor_Air_System_Name="",
+            Outdoor_Air_Method="Flow/Person",
+            Outdoor_Air_Flow_Rate_per_Person="0.00944",
+            Outdoor_Air_Flow_Rate_per_Zone_Floor_Area="0.0",
+            Outdoor_Air_Flow_Rate_per_Zone=0.0,
         )
 
 
