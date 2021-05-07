@@ -1,5 +1,5 @@
 tqdm~=4.60.0
-osmnx~=1.0.1
+osmnx~=1.1.0
 tabulate~=0.8.9
 path~=15.1.2
 rhino3dm==0.14.0
