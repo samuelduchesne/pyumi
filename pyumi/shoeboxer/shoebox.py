@@ -4,6 +4,9 @@ from typing import Optional
 
 from archetypal import IDF
 from archetypal.template.building_template import BuildingTemplate
+from archetypal.template.constructions.opaque_construction import OpaqueConstruction
+from archetypal.template.constructions.window_construction import WindowConstruction
+from archetypal.template.materials import GasMaterial
 from archetypal.template.zonedefinition import InternalMass
 from eppy.idf_msequence import Idf_MSequence
 from geomeppy.recipes import (
@@ -11,6 +14,7 @@ from geomeppy.recipes import (
     _is_window,
     window_vertices_given_wall,
 )
+from validator_collection import checkers, validators
 
 from pyumi.shoeboxer.hvac_templates import HVACTemplates
 
@@ -38,6 +42,76 @@ class ShoeBox(IDF):
         """Initialize Shoebox."""
         super(ShoeBox, self).__init__(*args, **kwargs)
         self.azimuth = azimuth  # 0 is north
+
+    @property
+    def total_envelope_resistance(self):
+        """Get the total envelope resistance [m2-K/W]."""
+        u_factor = 0
+        for surface in self.getsurfaces():
+            if surface.Surface_Type.lower() not in ["wall", "roof"]:
+                continue
+            construction = surface.get_referenced_object("Construction_Name")
+            wall = OpaqueConstruction.from_epbunch(construction)
+            wall_area = surface.area
+
+            window_area = 0
+            window_u_factor = 0
+            for subsurface in surface.subsurfaces:
+                construction = subsurface.get_referenced_object("Construction_Name")
+                window = WindowConstruction.from_epbunch(construction)
+                window_area = subsurface.area
+                window_u_factor += window.u_factor
+            wwr = window_area / wall_area
+            u_factor += (
+                wall.u_factor * wall_area * (1 - wwr)
+                + window_u_factor * window_area * wwr
+            )
+        return 1 / (u_factor / self.total_envelope_area)
+
+    @property
+    def total_envelope_area(self):
+        """Get the total envelope area including walls and roofs only [m2]."""
+        total_area = 0
+        for surface in self.getsurfaces():
+            if surface.Surface_Type.lower() not in ["wall", "roof"]:
+                continue
+            total_area += surface.area
+        return total_area
+
+    @property
+    def total_building_volume(self):
+        """Get he total building air volume [m3]."""
+        volume = 0
+        for zone in self.idfobjects["ZONE"]:
+            surfaces = zone.zonesurfaces
+            zone_volume = self._get_volume_from_surfs(surfaces)
+            volume += zone_volume
+        return volume
+
+    @property
+    def thermal_capacitance(self):
+        """Get the thermal capacitance of the building air + internal mass objects.
+
+        Notes:
+            m3 * kg/m3 * J/kg-K => J/K
+        """
+        air = GasMaterial("AIR")
+        air_capacitance = (
+            self.total_building_volume
+            * air.density_at_temperature(21 + 273.15)
+            * air.specific_heat
+        )
+
+        internal_mass_capacitance = 0
+        for ep_bunch in self.idfobjects["INTERNALMASS"]:
+            internal_mass = OpaqueConstruction.from_epbunch(
+                ep_bunch.get_referenced_object("Construction_Name")
+            )
+            internal_mass_capacitance += (
+                float(ep_bunch.Surface_Area)
+                * internal_mass.heat_capacity_per_unit_wall_area
+            )
+        return air_capacitance + internal_mass_capacitance
 
     @classmethod
     def minimal(cls, **kwargs):
@@ -71,10 +145,10 @@ class ShoeBox(IDF):
         )
         idf.newidfobject(
             "SIMULATIONCONTROL",
-            Do_Zone_Sizing_Calculation="Yes",
-            Do_System_Sizing_Calculation="Yes",
+            Do_Zone_Sizing_Calculation="No",
+            Do_System_Sizing_Calculation="No",
             Run_Simulation_for_Sizing_Periods="No",
-            Do_HVAC_Sizing_Simulation_for_Sizing_Periods="Yes",
+            Do_HVAC_Sizing_Simulation_for_Sizing_Periods="No",
         )
         return idf
 
@@ -86,6 +160,8 @@ class ShoeBox(IDF):
         ddy_file=None,
         height=3,
         number_of_stories=1,
+        ground_temperature=10,
+        wwr_map=None,
         **kwargs,
     ):
         """Create Shoebox from a template.
@@ -95,6 +171,9 @@ class ShoeBox(IDF):
                 :"SimpleIdealLoadsSystem".
             building_template (BuildingTemplate):
             ddy_file:
+            ground_temperature (int or list): The ground temperature in degC. If a
+                single numeric value is passed, the value is applied to all months.
+                If a list is passed, it must have len == 12.
 
         Returns:
             ShoeBox: A shoebox for this building_template
@@ -104,21 +183,21 @@ class ShoeBox(IDF):
         # Create Core box
         idf.add_block(
             name="Core",
-            coordinates=[(10, 0), (10, 5), (0, 5), (0, 0)],
+            coordinates=[(10, 0), (10, 10), (0, 10), (0, 0)],
             height=height,
             num_stories=number_of_stories,
             zoning="by_storey",
             perim_depth=3,
         )
         # Create Perimeter Box
-        idf.add_block(
-            name="Perim",
-            coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
-            height=height,
-            num_stories=number_of_stories,
-            zoning="by_storey",
-            perim_depth=3,
-        )
+        # idf.add_block(
+        #     name="Perim",
+        #     coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
+        #     height=height,
+        #     num_stories=number_of_stories,
+        #     zoning="by_storey",
+        #     perim_depth=3,
+        # )
         # Join adjacent walls
         idf.intersect_match()
 
@@ -131,17 +210,43 @@ class ShoeBox(IDF):
         window = building_template.Windows.Construction.to_epbunch(idf)
 
         # Set wwr
-        wwr_map = {0: 0, 90: 0, 180: 0, 270: 0}  # initialize wwr_map for orientation.
-        wwr_map.update({idf.azimuth: building_template.DefaultWindowToWallRatio})
-        set_wwr(idf, construction=window.Name, wwr_map=wwr_map, force=False)
+        if wwr_map is None:
+            wwr_map = {
+                0: 0,
+                90: 0,
+                180: 0,
+                270: 0,
+            }  # initialize wwr_map for orientation.
+            wwr_map.update({idf.azimuth: building_template.DefaultWindowToWallRatio})
+        set_wwr(idf, construction=window.Name, wwr_map=wwr_map, force=True)
 
         if ddy_file:
             idf.add_sizing_design_day(ddy_file)
 
         # add ground temperature
+        idf.ground_temperatures = ground_temperature
         idf.newidfobject(
             "Site:GroundTemperature:BuildingSurface".upper(),
-            January_Ground_Temperature=18,
+            **{
+                f"{month}_Ground_Temperature": temperature
+                for month, temperature in zip(
+                    [
+                        "January",
+                        "February",
+                        "March",
+                        "April",
+                        "May",
+                        "June",
+                        "July",
+                        "August",
+                        "September",
+                        "October",
+                        "November",
+                        "December",
+                    ],
+                    idf.ground_temperatures,
+                )
+            },
         )
 
         # add internal gains
@@ -169,12 +274,13 @@ class ShoeBox(IDF):
 
             # Create InternalMass object, then convert to EpBunch.
             internal_mass = InternalMass(
-                surface_name="{zone.Name} InternalMass",
+                surface_name=f"{zone.Name} InternalMass",
                 construction=building_template.Core.InternalMassConstruction,
                 total_area_exposed_to_zone=floor_area
                 * building_template.Core.InternalMassExposedPerFloorArea,
             )
-            internal_mass.to_epbunch(idf, zone.Name)
+            if internal_mass.total_area_exposed_to_zone > 0:
+                internal_mass.to_epbunch(idf, zone.Name)
 
         # infiltration, only `window` surfaces are considered.
         window_area = 0
@@ -189,6 +295,27 @@ class ShoeBox(IDF):
             idf, zone_name, opening_area=window_area * opening_area_ratio
         )
         return idf
+
+    @property
+    def ground_temperatures(self):
+        """Get or set the ground temperatures."""
+        return self._ground_temperatures
+
+    @ground_temperatures.setter
+    def ground_temperatures(self, value):
+        if checkers.is_numeric(value):
+            ground_temperatures = [value] * 12
+        elif checkers.is_iterable(value):
+            ground_temperature = validators.iterable(
+                value, minimum_length=12, maximum_length=12
+            )
+            ground_temperatures = [temp for temp in ground_temperature]
+        else:
+            raise ValueError(
+                "Input error for value 'ground_temperature'. Value must "
+                "be numeric or an iterable of length 12."
+            )
+        self._ground_temperatures = ground_temperatures
 
     def add_sizing_design_day(self, ddy_file):
         """Read ddy file and copy objects over to self."""
