@@ -35,9 +35,15 @@ from pyumi.epw import Epw
 from pyumi.geom_ops import geom_to_brep, resolve_3dm_geom
 from pyumi.umi_layers import UmiLayers
 
+from energy_pandas.units import unit_registry
+
 # create logger
 PYUMI_DRIVERS = []  # Todo: Specify future output formats here.
 log = logging.getLogger(__name__)
+
+# add specific units to registry
+
+unit_registry.define("kilogram_of_co2 = 1 * kilogram = kgCO2")
 
 
 class UmiProject:
