@@ -162,6 +162,8 @@ class ShoeBox(IDF):
         number_of_stories=1,
         ground_temperature=10,
         wwr_map=None,
+        zones_data=None,
+        zoning="by_storey",
         **kwargs,
     ):
         """Create Shoebox from a template.
@@ -174,30 +176,51 @@ class ShoeBox(IDF):
             ground_temperature (int or list): The ground temperature in degC. If a
                 single numeric value is passed, the value is applied to all months.
                 If a list is passed, it must have len == 12.
+            zones_data (list of dict): Specify the size and name of zones to create
+                with a list of dict. The list of dict should have this form:
+                {"name": "Core", "coordinates": [(10, 0), (10, 5), (0, 5), (0, 0)],
+                "height": 3, "num_stories": 1, "zoning": "by_storey", "perim_depth":
+                3}. See :meth:`geomeppy.idf.IDF.add_block` for more information on the
+                attributes of the zone dict.
+            zoning (str): The zoning pattern of the zone. Default : "by_storey".
 
         Returns:
             ShoeBox: A shoebox for this building_template
         """
         idf = cls.minimal(**kwargs)
 
+        assert zoning in [
+            "by_storey",
+            "core/perim",
+        ], f"Expected 'by_storey' or 'core/perim' for attr 'zoning', not {zoning}."
+
         # Create Core box
-        idf.add_block(
-            name="Core",
-            coordinates=[(10, 0), (10, 10), (0, 10), (0, 0)],
-            height=height,
-            num_stories=number_of_stories,
-            zoning="by_storey",
-            perim_depth=3,
-        )
-        # Create Perimeter Box
-        # idf.add_block(
-        #     name="Perim",
-        #     coordinates=[(10, 5), (10, 10), (0, 10), (0, 5)],
-        #     height=height,
-        #     num_stories=number_of_stories,
-        #     zoning="by_storey",
-        #     perim_depth=3,
-        # )
+        if zones_data is None:
+            zones_data = [
+                {
+                    "name": "Core",
+                    "coordinates": [(10, 0), (10, 5), (0, 5), (0, 0)],
+                    "height": height,
+                    "num_stories": number_of_stories,
+                    "zoning": zoning,
+                    "perim_depth": 3,
+                },
+            ]
+            if zoning == "by_storey":
+                # Add second zone if zoning scheme is "by_storey", else 'core/perim'
+                # will deal with creating the extra zones.
+                zones_data.append(
+                    {
+                        "name": "Perim",
+                        "coordinates": [(10, 5), (10, 10), (0, 10), (0, 5)],
+                        "height": height,
+                        "num_stories": number_of_stories,
+                        "zoning": zoning,
+                        "perim_depth": 3,
+                    }
+                )
+        for zone_dict in zones_data:
+            idf.add_block(**zone_dict)
         # Join adjacent walls
         idf.intersect_match()
 
