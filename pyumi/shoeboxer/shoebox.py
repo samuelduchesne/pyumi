@@ -3,11 +3,13 @@ import logging
 from typing import Optional
 
 from archetypal import IDF
+from archetypal.template import ZoneConstructionSet
 from archetypal.template.building_template import BuildingTemplate
 from archetypal.template.constructions.opaque_construction import OpaqueConstruction
 from archetypal.template.constructions.window_construction import WindowConstruction
 from archetypal.template.materials import GasMaterial
 from archetypal.template.zonedefinition import InternalMass
+from eppy.bunch_subclass import BadEPFieldError
 from eppy.idf_msequence import Idf_MSequence
 from geomeppy.recipes import (
     _has_correct_orientation,
@@ -224,10 +226,10 @@ class ShoeBox(IDF):
         # Join adjacent walls
         idf.intersect_match()
 
-        # split roof and ceiling:
+        # Todo: split roof and ceiling:
 
         # Constructions
-        idf.set_default_constructions()
+        idf.set_constructions(building_template.Perimeter.Constructions)
 
         # Add window construction
         window = building_template.Windows.Construction.to_epbunch(idf)
@@ -272,22 +274,7 @@ class ShoeBox(IDF):
             },
         )
 
-        # add internal gains
-        zone_name = idf.idfobjects["ZONE"][0].Name
-        building_template.Perimeter.Loads.to_epbunch(idf, zone_name)
-
-        # Heating System; create one for each zone.
-        for zone, zoneDefinition in zip(
-            idf.idfobjects["ZONE"],
-            [building_template.Core, building_template.Perimeter],
-        ):
-            HVACTemplates[system].create_from(zone, zoneDefinition)
-
-        # Internal mass
-        for zone, zoneDefinition in zip(
-            idf.idfobjects["ZONE"],
-            [building_template.Core, building_template.Perimeter],
-        ):
+        for zone in idf.idfobjects["ZONE"]:
             # Calculate zone area
             floor_area = 0
             for zone in idf.idfobjects["ZONE"]:
@@ -295,28 +282,52 @@ class ShoeBox(IDF):
                     if surface.Surface_Type.lower() == "floor":
                         floor_area += surface.area
 
-            # Create InternalMass object, then convert to EpBunch.
-            internal_mass = InternalMass(
-                surface_name=f"{zone.Name} InternalMass",
-                construction=building_template.Core.InternalMassConstruction,
-                total_area_exposed_to_zone=floor_area
-                * building_template.Core.InternalMassExposedPerFloorArea,
-            )
-            if internal_mass.total_area_exposed_to_zone > 0:
-                internal_mass.to_epbunch(idf, zone.Name)
+            # infiltration, only `window` surfaces are considered.
+            window_area = 0
+            opening_area_ratio = building_template.Windows.OperableArea
+            for zone in idf.idfobjects["ZONE"]:
+                for surface in zone.zonesurfaces:
+                    for sub_surface in surface.subsurfaces:
+                        if sub_surface.Surface_Type.lower() == "window":
+                            window_area += sub_surface.area
 
-        # infiltration, only `window` surfaces are considered.
-        window_area = 0
-        opening_area_ratio = building_template.Windows.OperableArea
-        for zone in idf.idfobjects["ZONE"]:
-            for surface in zone.zonesurfaces:
-                for sub_surface in surface.subsurfaces:
-                    if sub_surface.Surface_Type.lower() == "window":
-                        window_area += sub_surface.area
+            if is_core(zone):
+                # add internal gains
+                building_template.Core.Loads.to_epbunch(idf, zone.Name)
 
-        building_template.Perimeter.Ventilation.to_epbunch(
-            idf, zone_name, opening_area=window_area * opening_area_ratio
-        )
+                # Heating System; create one for each zone.
+                HVACTemplates[system].create_from(zone, building_template.Core)
+
+                # Create InternalMass object, then convert to EpBunch.
+                internal_mass = InternalMass(
+                    surface_name=f"{zone.Name} InternalMass",
+                    construction=building_template.Core.InternalMassConstruction,
+                    total_area_exposed_to_zone=floor_area
+                    * building_template.Core.InternalMassExposedPerFloorArea,
+                )
+                if internal_mass.total_area_exposed_to_zone > 0:
+                    internal_mass.to_epbunch(idf, zone.Name)
+            else:
+                # add internal gains
+                building_template.Perimeter.Loads.to_epbunch(idf, zone.Name)
+
+                # Heating System; create one for each zone.
+                HVACTemplates[system].create_from(zone, building_template.Perimeter)
+
+                # Create InternalMass object, then convert to EpBunch.
+                internal_mass = InternalMass(
+                    surface_name=f"{zone.Name} InternalMass",
+                    construction=building_template.Perimeter.InternalMassConstruction,
+                    total_area_exposed_to_zone=floor_area
+                    * building_template.Core.InternalMassExposedPerFloorArea,
+                )
+                if internal_mass.total_area_exposed_to_zone > 0:
+                    internal_mass.to_epbunch(idf, zone.Name)
+
+                # infiltration
+                building_template.Perimeter.Ventilation.to_epbunch(
+                    idf, zone.Name, opening_area=window_area * opening_area_ratio
+                )
         return idf
 
     @property
@@ -350,6 +361,58 @@ class ShoeBox(IDF):
                 for obj in sequence:
                     self.addidfobject(obj)
         del ddy
+
+    def set_constructions(self, zone_construction_set: ZoneConstructionSet):
+        """Set constructions from ZoneConstructionSet.
+
+        Args:
+            zone_construction_set (ZoneConstructionSet):
+        """
+        for surface in self.getsurfaces():
+            if surface.Surface_Type.lower() == "wall":
+                if surface.Outside_Boundary_Condition.lower() == "outdoors":
+                    surface.Construction_Name = zone_construction_set.Facade.to_epbunch(
+                        self
+                    ).Name
+                    if zone_construction_set.IsFacadeAdiabatic:
+                        surface.Outside_Boundary_Condition = "Adiabatic"
+                elif surface.Outside_Boundary_Condition.lower() == "ground":
+                    surface.Construction_Name = zone_construction_set.Facade.to_epbunch(
+                        self
+                    ).Name
+                    if zone_construction_set.IsFacadeAdiabatic:
+                        surface.Outside_Boundary_Condition = "Adiabatic"
+                else:
+                    surface.Construction_Name = (
+                        zone_construction_set.Partition.to_epbunch(self).Name
+                    )
+                    if zone_construction_set.IsPartitionAdiabatic:
+                        surface.Outside_Boundary_Condition = "Adiabatic"
+            if surface.Surface_Type.lower() == "floor":
+                if surface.Outside_Boundary_Condition.lower() == "ground":
+                    surface.Construction_Name = zone_construction_set.Ground.to_epbunch(
+                        self
+                    ).Name
+                    if zone_construction_set.IsGroundAdiabatic:
+                        surface.Outside_Boundary_Condition = "Adiabatic"
+                else:
+                    surface.Construction_Name = zone_construction_set.Slab.to_epbunch(
+                        self
+                    ).Name
+                    if zone_construction_set.IsSlabAdiabatic:
+                        surface.Outside_Boundary_Condition = "Adiabatic"
+            if surface.Surface_Type.lower() == "roof":
+                surface.Construction_Name = zone_construction_set.Roof.to_epbunch(
+                    self
+                ).Name
+                if zone_construction_set.IsRoofAdiabatic:
+                    surface.Outside_Boundary_Condition = "Adiabatic"
+            if surface.Surface_Type.lower() == "ceiling":
+                surface.Construction_Name = zone_construction_set.Slab.to_epbunch(
+                    self
+                ).Name
+                if zone_construction_set.IsSlabAdiabatic:
+                    surface.Outside_Boundary_Condition = "Adiabatic"
 
 
 def set_wwr(
@@ -428,3 +491,19 @@ def set_wwr(
             View_Factor_to_Ground="autocalculate",  # from the surface angle
         )
         window.setcoords(coords, ggr)
+
+
+def is_core(zone_ep):
+    # if all surfaces don't have boundary condition == "Outdoors"
+    iscore = True
+    for s in zone_ep.zonesurfaces:
+        try:
+            if (abs(int(s.tilt)) < 180) & (abs(int(s.tilt)) > 0):
+                obc = s.Outside_Boundary_Condition.lower()
+                if obc in ["outdoors", "ground"]:
+                    iscore = False
+                    break
+        except BadEPFieldError:
+            pass  # pass surfaces that don't have an OBC,
+            # eg. InternalMass
+    return iscore
