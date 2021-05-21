@@ -1,6 +1,6 @@
 isort==5.8.0
 black==21.5b1
-sphinx==4.0.1
+sphinx==4.0.2
 pytest==6.2.4
 pytest-cov==2.11.1
 pytest-xdist==2.2.1
