@@ -1,5 +1,6 @@
 """Module to handle umi projects as python objects."""
 import collections
+import io
 import json
 import logging
 import math
@@ -8,6 +9,8 @@ import re
 import tempfile
 import time
 import uuid
+import zipfile
+from io import StringIO, BytesIO
 from json import JSONDecodeError
 from sqlite3 import Connection, OperationalError, Row
 from sqlite3.dbapi2 import connect
@@ -17,6 +20,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from archetypal import IDF
 from energy_pandas import EnergyDataFrame, EnergySeries
 from fiona import supported_drivers as fiona_drivers
 from geopandas import GeoDataFrame, GeoSeries
@@ -33,6 +37,7 @@ from tqdm import tqdm
 
 from pyumi.epw import Epw
 from pyumi.geom_ops import geom_to_brep, resolve_3dm_geom
+from pyumi.shoeboxer import ShoeBox
 from pyumi.umi_layers import UmiLayers
 
 from energy_pandas.units import unit_registry
@@ -44,6 +49,61 @@ log = logging.getLogger(__name__)
 # add specific units to registry
 
 unit_registry.define("kilogram_of_co2 = 1 * kilogram = kgCO2")
+
+
+class ShoeBoxCollection(collections.UserDict):
+    """A collection of :class:`ShoeBox` models with their path as a key.
+
+    Handles getting and setting variable values.
+    """
+
+    def __getattr__(self, key):
+        """Get attribute."""
+        if isinstance(key, int):
+            value = list(self.data.values())[key]
+        else:
+            try:
+                value = super(ShoeBoxCollection, self).__getitem__(key)
+            except KeyError:
+                value = self.data[key]
+        return value
+
+    def __getitem__(self, key):
+        """Get item."""
+        if isinstance(key, int):
+            value = list(self.data.values())[key]
+        elif isinstance(key, slice):
+            value = list(self.data.values()).__getitem__(key)
+        else:
+            value = super(ShoeBoxCollection, self).__getitem__(key)
+        return value
+
+    def __setattr__(self, key, value):
+        """Set attribute."""
+        if isinstance(value, dict):
+            super(ShoeBoxCollection, self).__setattr__(key, value)
+        elif isinstance(value, ShoeBox):
+            super(ShoeBoxCollection, self).__setattr__(
+                key.replace("\\", "_")
+                .replace("/", "_")
+                .replace("-", "_")
+                .replace(".idf", ""),
+                value,
+            )
+            super(ShoeBoxCollection, self).__setitem__(key, value)
+        else:
+            self.__setitem__(key, value)
+
+    def __setitem__(self, key, value):
+        """Set item."""
+        if isinstance(value, ShoeBox):
+            """if a ShoeBox is given, simply set it"""
+            self.__setattr__(key, value)
+        else:
+            raise TypeError(
+                "Cannot set a value of type {} in this "
+                "VariableCollection".format(type(value))
+            )
 
 
 class UmiProject:
@@ -89,6 +149,7 @@ class UmiProject:
         fid="fid",
         sdl_common=None,
         fast_open=False,
+        shoeboxes=None,
     ):
         """Constructor."""
         self.fid = fid  # Column use as unique id gdf3dm
@@ -105,6 +166,7 @@ class UmiProject:
         self.template_lib = template_lib
         self.epw = epw
         self.energy = Energy(self)
+        self.shoeboxes = shoeboxes
 
         # Initiate Layers in 3dm file
         self.umiLayers = umi_layers or UmiLayers(self.file3dm)
@@ -791,6 +853,7 @@ class UmiProject:
 
             # 5. Parse all the .json files in "sdl-common" folder
             sdl_common = {}  # prepare sdl_common dict
+            shoeboxes = ShoeBoxCollection()
 
             # loop over 'sdl-common' config files (.json)
             for file in [
@@ -811,6 +874,18 @@ class UmiProject:
                     with umizip.open(file) as gdf:
                         gdf_3dm = GeoDataFrame.from_file(gdf)
                         gdf_3dm._crs = utm_crs
+                elif file.filename.endswith("energy.zip"):
+                    # We load the IDF models
+                    with umizip.open(file) as zfiledata:
+                        with ZipFile(zfiledata) as energy_zip:
+                            for sample in energy_zip.infolist():
+                                shoeboxes[
+                                    str(Path(sample.filename).expand())
+                                ] = ShoeBox(
+                                    StringIO(energy_zip.open(sample).read().decode()),
+                                    epw=StringIO(epw.to_file_string()),
+                                    as_version="8.4",
+                                )
                 else:
                     with umizip.open(file) as f:
                         try:
@@ -877,6 +952,7 @@ class UmiProject:
             sdl_common=sdl_common,
             umi_sqlite=con,
             fast_open=fast_open,
+            shoeboxes=shoeboxes,
         )
 
     def export(self, filename, driver="GeoJSON", schema=None, index=None, **kwargs):
@@ -979,7 +1055,7 @@ class UmiProject:
 
         # export needed class attributes to outfile
         outfile = (dst / name + ".umi").expand()
-        with ZipFile(outfile, "w") as zip_archive:
+        with ZipFile(outfile, "w", zipfile.ZIP_DEFLATED) as zip_archive:
 
             # 1. Save the file3dm object to the archive.
             if self.file3dm is not None:
@@ -1019,6 +1095,17 @@ class UmiProject:
             dest.close()
             zip_archive.write("umi-archive.sqlite3", db_archive.filename)
             os.remove("umi-archive.sqlite3")
+
+            # 7. Save the Energy+ files
+            if self.shoeboxes is not None:
+                zip_buffer = io.BytesIO()
+                with ZipFile(zip_buffer, "a", zipfile.ZIP_STORED) as f:
+                    idf: IDF
+                    for k, idf in self.shoeboxes.items():
+                        idfname = ZipInfo(k)
+                        f.writestr(idfname, idf.idfstr())
+                energy_zip = ZipInfo("sdl-common/energy.zip")
+                zip_archive.writestr(energy_zip, zip_buffer.getvalue())
 
         log.info(f"Saved to {outfile.abspath()}")
 
