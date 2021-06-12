@@ -85,7 +85,7 @@ class ShoeBox(IDF):
         """Get he total building air volume [m3]."""
         volume = 0
         for zone in self.idfobjects["ZONE"]:
-            surfaces = zone.zonesurfaces
+            surfaces = [zone for zone in zone.zonesurfaces if hasattr(zone, "coords")]
             zone_volume = self._get_volume_from_surfs(surfaces)
             volume += zone_volume
         return volume
