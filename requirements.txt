@@ -5,5 +5,5 @@ path~=15.1.2
 rhino3dm==0.14.0
 cjio~=0.6.8
 energy-pandas~=0.2.4
-ladybug_core~=0.39.3
+ladybug_core~=0.39.4
 archetypal~=2.1.0
