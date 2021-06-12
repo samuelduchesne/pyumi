@@ -825,7 +825,6 @@ class UmiProject:
         try:
             # First, look in project-settings
             xoff, yoff = sdl_common["project-settings"]["OriginalProjectedOrigin"]
-            log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
         except KeyError:
             # Not defined in project-settings
             if origin_unset is None:
@@ -848,9 +847,14 @@ class UmiProject:
                     crs="EPSG:4326",
                 )
                 .to_crs(utm_crs)
-                .geometry
+                .geometry[0]
             )
             xoff, yoff = origin_unset.x, origin_unset.y
+        else:
+            log.debug(f"origin-unset of {xoff}, {yoff} read from project-settings")
+
+        # add back in the "project-settings"
+        sdl_common["project-settings"]["OriginalProjectedOrigin"] = (xoff, yoff)
 
         gdf_world_projected = gdf_3dm.copy()
         gdf_world_projected.geometry = gdf_world_projected.translate(xoff, yoff)
