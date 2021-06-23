@@ -47,28 +47,40 @@ class ShoeBox(IDF):
 
     @property
     def total_envelope_resistance(self):
-        """Get the total envelope resistance [m2-K/W]."""
-        u_factor = 0
+        """Get the total envelope resistance [m2-K/W].
+
+        Note:
+            The envelope is consisted of surfaces that have an outside boundary
+            condition different then `Adiabatic` or `Surface` or that participate in
+            the heat exchange with the exterior.
+
+        """
+        u_factor_times_area = 0
+        gross_area = 0
         for surface in self.getsurfaces():
-            if surface.Surface_Type.lower() not in ["wall", "roof"]:
+            # loop over surfaces that have heat exchange
+            if surface.Outside_Boundary_Condition.lower() in ["adiabatic", "surface"]:
                 continue
             construction = surface.get_referenced_object("Construction_Name")
-            wall = OpaqueConstruction.from_epbunch(construction)
-            wall_area = surface.area
+            surface_construction = OpaqueConstruction.from_epbunch(construction)
+            surface_area = surface.area
+            gross_area += surface_area
 
-            window_area = 0
+            # for the surface, loop over subsurfaces (aka windows)
+            surface_window_area = 0
             window_u_factor = 0
-            for subsurface in surface.subsurfaces:
+            for subsurface in surface.subsurfaces + surface.subsurfaces:
                 construction = subsurface.get_referenced_object("Construction_Name")
                 window = WindowConstruction.from_epbunch(construction)
-                window_area = subsurface.area
-                window_u_factor += window.u_factor
-            wwr = window_area / wall_area
-            u_factor += (
-                wall.u_factor * wall_area * (1 - wwr)
-                + window_u_factor * window_area * wwr
+                surface_window_area += subsurface.area
+                window_u_factor += window.u_factor * subsurface.area
+
+            # calculate the u_factor_times_area
+            u_factor_times_area += (
+                surface_construction.u_factor * (surface_area - surface_window_area)
+                + window_u_factor
             )
-        return 1 / (u_factor / self.total_envelope_area)
+        return 1 / (u_factor_times_area / gross_area)
 
     @property
     def total_envelope_area(self):
