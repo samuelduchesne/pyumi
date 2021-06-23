@@ -116,6 +116,21 @@ class ShoeBox(IDF):
         return volume
 
     @property
+    def building_air_thermal_capacitance(self):
+        """Get the thermal capacitance of the building air only.
+
+        Notes:
+            m3 * kg/m3 * J/kg-K => J/K
+        """
+        air = GasMaterial("AIR")
+        air_capacitance = (
+            self.total_building_volume
+            * air.density_at_temperature(21 + 273.15)
+            * air.specific_heat
+        )
+        return air_capacitance
+
+    @property
     def thermal_capacitance(self):
         """Get the thermal capacitance of the building air + internal mass objects.
 
