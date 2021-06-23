@@ -101,12 +101,18 @@ class ShoeBox(IDF):
 
     @property
     def total_building_volume(self):
-        """Get he total building air volume [m3]."""
+        """Get the total building air volume [m3]."""
+        import numpy as np
+        from scipy.spatial import ConvexHull
+
         volume = 0
         for zone in self.idfobjects["ZONE"]:
-            surfaces = [zone for zone in zone.zonesurfaces if hasattr(zone, "coords")]
-            zone_volume = self._get_volume_from_surfs(surfaces)
-            volume += zone_volume
+            points = []
+            for surface in zone.zonesurfaces:
+                if hasattr(surface, "coords"):
+                    points.extend(surface.coords)
+            points = np.array(points)  # the points as (npoints, ndim)
+            volume += ConvexHull(points).volume * float(zone.Multiplier)
         return volume
 
     @property
