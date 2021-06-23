@@ -84,10 +84,17 @@ class ShoeBox(IDF):
 
     @property
     def total_envelope_area(self):
-        """Get the total envelope area including walls and roofs only [m2]."""
+        """Get the total gross envelope area including windows [m2].
+
+        Note:
+            The envelope is consisted of surfaces that have an outside boundary
+            condition different then `Adiabatic` or `Surface` or that participate in
+            the heat exchange with the exterior.
+
+        """
         total_area = 0
         for surface in self.getsurfaces():
-            if surface.Surface_Type.lower() not in ["wall", "roof"]:
+            if surface.Outside_Boundary_Condition.lower() in ["adiabatic", "surface"]:
                 continue
             total_area += surface.area
         return total_area
