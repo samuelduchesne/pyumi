@@ -69,7 +69,7 @@ class ShoeBox(IDF):
             # for the surface, loop over subsurfaces (aka windows)
             surface_window_area = 0
             window_u_factor = 0
-            for subsurface in surface.subsurfaces + surface.subsurfaces:
+            for subsurface in surface.subsurfaces:
                 construction = subsurface.get_referenced_object("Construction_Name")
                 window = WindowConstruction.from_epbunch(construction)
                 surface_window_area += subsurface.area
@@ -101,12 +101,18 @@ class ShoeBox(IDF):
 
     @property
     def total_building_volume(self):
-        """Get he total building air volume [m3]."""
+        """Get the total building air volume [m3]."""
+        import numpy as np
+        from scipy.spatial import ConvexHull
+
         volume = 0
         for zone in self.idfobjects["ZONE"]:
-            surfaces = [zone for zone in zone.zonesurfaces if hasattr(zone, "coords")]
-            zone_volume = self._get_volume_from_surfs(surfaces)
-            volume += zone_volume
+            points = []
+            for surface in zone.zonesurfaces:
+                if hasattr(surface, "coords"):
+                    points.extend(surface.coords)
+            points = np.array(points)  # the points as (npoints, ndim)
+            volume += ConvexHull(points).volume * float(zone.Multiplier)
         return volume
 
     @property
