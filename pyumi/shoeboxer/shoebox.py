@@ -69,7 +69,7 @@ class ShoeBox(IDF):
             # for the surface, loop over subsurfaces (aka windows)
             surface_window_area = 0
             window_u_factor = 0
-            for subsurface in surface.subsurfaces + surface.subsurfaces:
+            for subsurface in surface.subsurfaces:
                 construction = subsurface.get_referenced_object("Construction_Name")
                 window = WindowConstruction.from_epbunch(construction)
                 surface_window_area += subsurface.area
