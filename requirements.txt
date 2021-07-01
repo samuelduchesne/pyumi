@@ -6,5 +6,5 @@ rhino3dm==7.6.0
 cjio~=0.6.8
 numpy~=1.20.3  # because of from numpy.core._asarray import asarray
 energy-pandas~=0.3.1
-ladybug_core~=0.39.4
+ladybug_core~=0.39.6
 archetypal~=2.2.0
