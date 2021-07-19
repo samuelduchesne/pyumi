@@ -8,4 +8,4 @@ cjio~=0.6.8
 numpy~=1.20.3  # because of from numpy.core._asarray import asarray
 energy-pandas~=0.3.1
 ladybug_core~=0.39.8
-archetypal~=2.2.0
+archetypal~=2.2.1
