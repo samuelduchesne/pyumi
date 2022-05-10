@@ -39,9 +39,12 @@ pyumi uses many GIS libraries that are quite finicky. It is strongly recommended
 ```shell script
 git clone https://github.com/samuelduchesne/pyumi.git
 cd pyumi
-conda create -c conda-forge -n pyumi python=3.7
-conda env update -n pyumi --file environment.yml
+conda create -y -c conda-forge -n pyumi python=3.8
 conda activate pyumi
+conda install -y -c conda-forge fiona
+pip install -r requirements.txt
+pip install ladybug-core
+pip install -e . --no-deps
 ```
 
 ## From a GIS dataset
@@ -76,7 +79,7 @@ umi = UmiProject.from_gis(
     height_column_name="Height",
     template_lib=template_lib,
     template_map=template_map,
-    map_to_column="Use_Type",
+    map_to_columns="Use_Type",
     epw=epw
 ).save()
 ```
@@ -93,7 +96,7 @@ to have an additional level (nested dict):
 }
 ```
 
-Using this multilevel map, we also pass two column names to the constructor `map_to_column=["Use_Type", "Year_Built"]`:
+Using this multilevel map, we also pass two column names to the constructor `map_to_columns=["Use_Type", "Year_Built"]`:
 
 ```python
 from pyumi.umi_project import UmiProject
@@ -109,7 +112,7 @@ umi = UmiProject.from_gis(
     "Height",
     template_lib=template_lib,
     template_map=template_map,
-    map_to_column=["Use_Type", "Year_Built"],
+    map_to_columns=["Use_Type", "Year_Built"],
     epw=epw
 ).save()
 ```
