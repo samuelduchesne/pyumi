@@ -263,7 +263,7 @@ class TestEpw:
     def epw_buffer(self):
         """Yields an epw string."""
         yield Epw._download_epw_file(
-            "https://energyplus.net/weather-download/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw"
+            "https://energyplus-weather.s3.amazonaws.com/north_and_central_america_wmo_region_4/USA/WI/USA_WI_Wittman.Rgnl.AP.726456_TMY3/USA_WI_Wittman.Rgnl.AP.726456_TMY3.epw"
         )
 
     @pytest.fixture()

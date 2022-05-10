@@ -32,7 +32,7 @@ setup(
     long_description_content_type="text/markdown",
     python_requires=">=3.6",
     install_requires=install_requires,
-    extras_require={"dev": dev_requires},
+    extras_require={"dev": dev_requires, "cjio": ["cjio~=0.6.8"]},
     classifiers=[
         # How mature is this project? Common values are
         #   3 - Alpha
