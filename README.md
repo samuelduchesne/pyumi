@@ -30,11 +30,11 @@ To create an umi project from a GIS dataset, first the dataset must contain cert
 
 ## Compatibility
 
-Because pyumi relies on the rhino3dm library, it is only compatible with python 3.7.
+Because pyumi relies on the rhino3dm library, it is only compatible with python 3.8.
 
 ## Installation
 
-pyumi uses many GIS libraries that are quite finicky. It is strongly recommended that pyumi be installed on a new conda environment:
+pyumi uses many GIS libraries that are quite finicky. It is strongly recommended that pyumi be installed on a new conda environment running python=3.8:
 
 ```shell script
 git clone https://github.com/samuelduchesne/pyumi.git
