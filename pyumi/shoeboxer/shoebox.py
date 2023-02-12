@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 from archetypal import IDF
-from archetypal.template import ZoneConstructionSet
+from archetypal.template.zone_construction_set import ZoneConstructionSet
 from archetypal.template.building_template import BuildingTemplate
 from archetypal.template.constructions.opaque_construction import OpaqueConstruction
 from archetypal.template.constructions.window_construction import WindowConstruction
