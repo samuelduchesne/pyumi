@@ -317,19 +317,19 @@ class ShoeBox(IDF):
         for zone in idf.idfobjects["ZONE"]:
             # Calculate zone area
             floor_area = 0
-            for zone in idf.idfobjects["ZONE"]:
-                for surface in zone.zonesurfaces:
-                    if surface.Surface_Type.lower() == "floor":
-                        floor_area += surface.area
+            # for zone in idf.idfobjects["ZONE"]:
+            for surface in zone.zonesurfaces:
+                if surface.Surface_Type.lower() == "floor":
+                    floor_area += surface.area
 
             # infiltration, only `window` surfaces are considered.
             window_area = 0
             opening_area_ratio = building_template.Windows.OperableArea
-            for zone in idf.idfobjects["ZONE"]:
-                for surface in zone.zonesurfaces:
-                    for sub_surface in surface.subsurfaces:
-                        if sub_surface.Surface_Type.lower() == "window":
-                            window_area += sub_surface.area
+            # for zone in idf.idfobjects["ZONE"]:
+            for surface in zone.zonesurfaces:
+                for sub_surface in surface.subsurfaces:
+                    if sub_surface.Surface_Type.lower() == "window":
+                        window_area += sub_surface.area
 
             if is_core(zone):
                 # add internal gains
@@ -347,6 +347,12 @@ class ShoeBox(IDF):
                 )
                 if internal_mass.total_area_exposed_to_zone > 0:
                     internal_mass.to_epbunch(idf, zone.Name)
+
+                # add dhw gains
+                building_template.Core.DomesticHotWater.to_epbunch(
+                    idf, zone.Name, floor_area
+                )
+
             else:
                 # add internal gains
                 building_template.Perimeter.Loads.to_epbunch(idf, zone.Name)
@@ -367,6 +373,11 @@ class ShoeBox(IDF):
                 # infiltration
                 building_template.Perimeter.Ventilation.to_epbunch(
                     idf, zone.Name, opening_area=window_area * opening_area_ratio
+                )
+
+                # add dhw gains
+                building_template.Perimeter.DomesticHotWater.to_epbunch(
+                    idf, zone.Name, floor_area
                 )
         return idf
 
