@@ -3,3 +3,4 @@ tabulate~=0.8.9
 rhino3dm==7.7.0
 chardet~=4.0.0
 archetypal~=2.2.0
+pint<=0.19
