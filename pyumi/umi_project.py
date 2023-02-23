@@ -560,7 +560,7 @@ class UmiProject:
             gdf_3dm=gdf,
             gdf_world=gdf_world,
             gdf_world_projected=gdf_world_projected,
-            to_crs=gdf._crs,
+            to_crs=gdf.geometry.crs,
             **kwargs,
         )
 
@@ -873,7 +873,7 @@ class UmiProject:
                     # Second, load the GeoDataFrame
                     with umizip.open(file) as gdf:
                         gdf_3dm = GeoDataFrame.from_file(gdf)
-                        gdf_3dm._crs = utm_crs
+                        gdf_3dm.geometry.crs = utm_crs
                 elif file.filename.endswith("energy.zip"):
                     # We load the IDF models
                     with umizip.open(file) as zfiledata:
@@ -960,7 +960,7 @@ class UmiProject:
 
         The :attr:`UmiProject.gdf_3dm` is first translated back to the
         :attr:`UmiProject.world_gdf_projected.centroid` and then reprojected
-        to the :attr:`UmiProject.world_gdf._crs`. By default, a GeoJSON is
+        to the :attr:`UmiProject.world_gdf.crs`. By default, a GeoJSON is
         written, but any OGR data source supported by Fiona can be written.
         A dictionary of supported OGR
         providers is available via:
@@ -999,7 +999,7 @@ class UmiProject:
         Returns:
             None
         """
-        world_crs = self.gdf_world._crs  # get utm crs
+        world_crs = self.gdf_world.geometry.crs  # get utm crs
         exp_gdf = self.gdf_3dm.copy()  # make a copy
 
         dtype_map = {self.fid: str}  # UUIDs as string
