@@ -61,6 +61,8 @@ def geom_to_brep(geom, from_elevation=0, to_elevation=0):
     # Converts the GeoSeries to a :class:`_file3dm.PolylineCurve`
     exterior, interiors = extract_poly_coords(geom)
     geom = shapely.geometry.Polygon(exterior, interiors)
+    if geom.area < 1:
+        return np.NaN
 
     outerProfile = PolylineCurve(
         Point3dList([Point3d(x, y, 0) for x, y, *z in geom.exterior.coords])
